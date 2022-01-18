@@ -12,7 +12,7 @@ include_directories(include ${JNI_INCLUDE_DIRS})
 set(GENERATED_CLASS ${CMAKE_CURRENT_BINARY_DIR}/frontrow/client/Client.class)
 add_custom_command(
     OUTPUT ${GENERATED_CLASS}
-    COMMAND ${Java_JAVAC_EXECUTABLE} --source 11 --target 11 frontrow/client/Client.java -d ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${Java_JAVAC_EXECUTABLE} -source 11 -target 11 frontrow/client/Client.java -d ${CMAKE_CURRENT_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/java
     DEPENDS src/java/frontrow/client/Client.java
 )
