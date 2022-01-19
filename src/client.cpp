@@ -127,6 +127,7 @@ void ShutdownLibrary(ClientHandle handle) {
     if (handle) {
         // TODO: call some sort of finalize method on client
 //        handle->env->DeleteGlobalRef(handle->client);
+        handle->env->ExceptionDescribe();
         handle->jvm->DestroyJavaVM();
         delete handle;
     }
