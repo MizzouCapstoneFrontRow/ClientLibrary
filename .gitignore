@@ -7,3 +7,4 @@ java/.shelf/
 java/.settings
 java/.classpath
 java/.project
+native/build/

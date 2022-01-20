@@ -38,14 +38,14 @@ public class Client {
     /**
     * Registers a sensor feature with the library. Must be called after init and before connection.
     */
-    public void RegsiterSensor(/* TODO */) {
+    public void RegisterSensor(/* TODO */) {
         throw new UnsupportedOperationException("Not yet implemented");
     }
 
     /**
     * Registers an axis feature with the library. Must be called after init and before connection.
     */
-    public void RegsterAxis(/* TODO */) {
+    public void RegisterAxis(/* TODO */) {
         throw new UnsupportedOperationException("Not yet implemented");
     }
 
@@ -56,7 +56,7 @@ public class Client {
     * @param returns    The return types of the function.
     * @param callback   The callback.
     */
-    public void RegsterFunction(String name, Parameter[] parameters, Parameter[] returns, Callback callback) {
+    public void RegisterFunction(String name, Parameter[] parameters, Parameter[] returns, Callback callback) {
         this.functions.put(name, new Function(parameters, returns, callback));
     }
 
@@ -70,13 +70,19 @@ public class Client {
     /**
     * Updates internal library state and calls any necessary callbacks.
     */
-    public void LibraryUpdate(/* TODO */) {
-        throw new UnsupportedOperationException("Not yet implemented");
+    public void LibraryUpdate() {
+        // Testing
+        System.out.println(functions);
+        Callback print = functions.get("print").callback;
+        print.call("Hello from a callback!");
+        Callback multiply = functions.get("multiply").callback;
+        Object[] result = multiply.call(4, 5);
+        System.out.println("4 * 5 = " + (Integer)result[0]);
     }
 
     /**
     * Disconnects and cleans up anything inside the library that requires cleanup.
     */
-    public void ShutdownLibrary(/* TODO */) {
+    public void ShutdownLibrary() {
     }
 }

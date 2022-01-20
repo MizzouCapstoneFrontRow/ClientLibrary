@@ -32,6 +32,10 @@ bool SetName(ClientHandle, const char *name);
 * @param returns    Parameter descriptors for output parameters
 * @param callback   The callback function to call when the server calls the function
 * @returns bool success (Was the function registered successfully)
+* Parameter descriptor: A parameter descriptor is an array of two const char*,
+* the name and type, respectively, of the parameter.
+* The arrays of parameter descritptors passed into this function should be
+* terminated by {NULL, NULL}.
 */
 bool RegisterFunction(
     ClientHandle handle,
@@ -44,7 +48,7 @@ bool RegisterFunction(
 /**
 * Updates internal library state and calls any necessary callbacks.
 */
-void LibraryUpdate(ClientHandle);
+bool LibraryUpdate(ClientHandle);
 
 /**
 * Deinitialize and shut down the library.

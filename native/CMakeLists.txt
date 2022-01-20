@@ -5,7 +5,7 @@ find_package(Java 1.11 REQUIRED COMPONENTS Development Runtime)
 find_package(JNI 1.11 REQUIRED)
 
 set(CMAKE_C_FLAGS "-std=c11 -Wall -Wextra -Wshadow -Werror -g -pthread")
-set(CMAKE_CXX_FLAGS "-std=c++11 -Wall -Wextra -Wshadow -Werror -g -pthread")
+set(CMAKE_CXX_FLAGS "-std=c++17 -Wall -Wextra -Wshadow -Werror -g -pthread")
 
 include_directories(include ${JNI_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
