@@ -42,7 +42,7 @@ bool RegisterFunction(
     const char *name,
     const char *(*parameters)[2],
     const char *(*returns)[2],
-    void (*callback)(const void **, void **)
+    void (*callback)(const void *const*const, void *const*const)
 );
 
 /**

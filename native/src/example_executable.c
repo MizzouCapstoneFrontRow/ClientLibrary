@@ -6,7 +6,7 @@
 // so parameters[0] points to a const char *name
 // so parameters[1] is NULL
 // so returns[0] is NULL
-void print_callback(const void **parameters, void **returns) {
+void print_callback(const void *const*const parameters, void *const*const returns) {
     (void)returns;
     printf("Hello from callback, %s!\n", *((const char**)parameters[0]));
 }
@@ -24,7 +24,7 @@ const char *print_returns[][2] = {
 // so parameters[2] is NULL
 // so returns[0] points to an int product
 // so returns[1] is NULL
-void multiply_callback(const void **parameters, void **returns) {
+void multiply_callback(const void *const*const parameters, void *const*const returns) {
     int x = *(const int*)parameters[0];
     int y = *(const int*)parameters[1];
     int *product = (int*)returns[0];
