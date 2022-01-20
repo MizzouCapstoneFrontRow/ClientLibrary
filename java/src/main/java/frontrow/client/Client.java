@@ -1,12 +1,19 @@
 package frontrow.client;
 
-public class Client {
-    private String displayName;
+import java.util.HashMap;
 
+public class Client {
+    // Fields
+    private String displayName;
+    private HashMap<String, Function> functions;
+
+
+    // Methods
     /**
     * Prepares library for use. Must be called first.
     */
     public void InitializeLibrary() {
+        this.functions = new HashMap<>();
         throw new UnsupportedOperationException("Not yet implemented");
     }
 
@@ -25,7 +32,7 @@ public class Client {
     * @param port            int that defines what port the stream is defined on
     * @param characteristics Array of string pairs that defines the possible data this stream provides
     */
-    public void RegisterStream(String streamName, String type, int port) {
+    public void RegisterStream(String streamName, String type, int port/* TODO */) {
         throw new UnsupportedOperationException("Not yet implemented");
     }
 
@@ -45,9 +52,13 @@ public class Client {
 
     /**
     * Registers a function with the library. Must be called after init and before connection.
+    * @param name       String that is the name of the function
+    * @param parameters The paramters of the function.
+    * @param returns    The return types of the function.
+    * @param callback   The callback.
     */
-    public void RegsterFunction(/* TODO */) {
-        throw new UnsupportedOperationException("Not yet implemented");
+    public void RegsterFunction(String name, Parameter[] parameters, Parameter[] returns, Callback callback) {
+        this.functions.put(name, new Function(parameters, returns, callback));
     }
 
     /**
