@@ -8,8 +8,8 @@ struct ClientHandle_t {
     jclass *client; // global reference
 };
 
-extern const char __Client_start[];
-extern const char __Client_end[];
+extern const char __NativeClient_start[];
+extern const char __NativeClient_end[];
 
 /*
  * Initialize the library and return a handle that will be passed to all library functions.
@@ -69,15 +69,15 @@ extern "C" ClientHandle InitializeLibrary(void) {
     // Load library class, instantiate it, and store global ref to instance
 
     jclass clazz = env->DefineClass(
-        "frontrow/client/Client",
+        "frontrow/client/NativeClient",
         system_loader,
-        (const jbyte*)__Client_start,
-        __Client_end - __Client_start
+        (const jbyte*)__NativeClient_start,
+        __NativeClient_end - __NativeClient_start
     );
     if (clazz == NULL) {
         // TODO: error handling
-        std::fprintf(stderr, "Could not load frontrow.client.Client.\n");
-        auto size = __Client_end - __Client_start;
+        std::fprintf(stderr, "Could not load frontrow.client.NativeClient.\n");
+        auto size = __NativeClient_end - __NativeClient_start;
 
         std::fprintf(stderr, "%zu %zx\n", size, size);
 
@@ -89,7 +89,7 @@ extern "C" ClientHandle InitializeLibrary(void) {
     jmethodID test = env->GetStaticMethodID(clazz, "test", "()V");
     if (test == NULL) {
         // TODO: error handling
-        std::fprintf(stderr, "Could not find frontrow.client.Client's test method.\n");
+        std::fprintf(stderr, "Could not find frontrow.client.NativeClient's test method.\n");
         env->ExceptionDescribe();
         jvm->DestroyJavaVM();
         return nullptr;
