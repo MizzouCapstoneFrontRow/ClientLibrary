@@ -14,7 +14,6 @@ public class Client {
     */
     public void InitializeLibrary() {
         this.functions = new HashMap<>();
-        throw new UnsupportedOperationException("Not yet implemented");
     }
 
     /**
@@ -79,6 +78,5 @@ public class Client {
     * Disconnects and cleans up anything inside the library that requires cleanup.
     */
     public void ShutdownLibrary(/* TODO */) {
-        throw new UnsupportedOperationException("Not yet implemented");
     }
 }
