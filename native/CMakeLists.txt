@@ -27,6 +27,8 @@ macro(make_generated_class SOURCE_FILE GENERATED_CLASS GENERATED_CLASS_HEADER GE
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         DEPENDS "${GENERATED_CLASS}" src/incbin.S
     )
+
+    list(APPEND CARGO_ENV "${SYMBOL_NAME}_CLASS=${GENERATED_CLASS}")
 endmacro()
 
 make_generated_class(
@@ -57,7 +59,7 @@ message(    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so"
 )
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so" FAKE_FILE # FAKE_FILE to make this target always be out-of-date
-    COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}/rs" "JAVA_JVM_LIBRARY=${JAVA_JVM_LIBRARY}" cargo build
+    COMMAND "${CMAKE_COMMAND}" -E env ${CARGO_ENV} "CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}/rs" "JAVA_JVM_LIBRARY=${JAVA_JVM_LIBRARY}" cargo build
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rs/"
     DEPENDS "${GENERATED_CLASSES}"
     COMMENT "libclient.so (rust version)"
