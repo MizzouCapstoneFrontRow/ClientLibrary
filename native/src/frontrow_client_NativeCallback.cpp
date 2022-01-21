@@ -210,7 +210,7 @@ extern "C" jobjectArray Java_frontrow_client_NativeCallback_call(JNIEnv *env, jo
         env->ReleaseStringUTFChars(type_j, type);
     }
 
-    void (*function)(const void **, void **) = (void(*)(const void**, void**))function_pointer;
+    void (*function)(const void *const *const, void *const *const) = (void(*)(const void*const*const , void*const*const))function_pointer;
     for (auto ptr : parameters_c) {
         std::printf("parameter: %p\n", ptr);
     }
