@@ -1,5 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-mod native_callback;
+#[macro_use]
+pub(crate) mod util;
+pub(crate) mod native_callback;
 
 use std::{
     ffi::CStr,
@@ -16,32 +18,12 @@ use jni::{
     errors::Result as JResult,
     sys::jobject
 };
+use util::*;
 
 pub struct ClientHandle {
     jvm: Arc<JavaVM>,
     executor: Executor,
     client: GlobalRef,
-}
-
-macro_rules! unwrap_or_return {
-    ( $value:expr, $retval:expr $(,)? ) => {
-        match ($value).map(Some).unwrap_or_default() {
-            Some(x) => x,
-            None => return $retval,
-        }
-    };
-}
-macro_rules! shadow_or_return {
-    ( 2 $( $rest:tt )* ) => {
-        shadow_or_return!($( $rest )*);
-        shadow_or_return!($( $rest )*);
-    };
-    ( mut $shadow:ident, $retval:expr ) => {
-        let mut $shadow = unwrap_or_return!($shadow, $retval);
-    };
-    ( $shadow:ident, $retval:expr ) => {
-        let $shadow = unwrap_or_return!($shadow, $retval);
-    };
 }
 
 #[no_mangle]
