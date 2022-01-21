@@ -21,3 +21,18 @@ macro_rules! shadow_or_return {
         let $shadow = unwrap_or_return!($shadow, $retval);
     };
 }
+
+macro_rules! c_str {
+    ( $s:literal ) => {
+        {
+            lazy_static::lazy_static! {
+                static ref S: &'static std::ffi::CStr = {
+                    let s: &'static str = concat!($s, "\0");
+                    let s: &'static [u8] = s.as_bytes();
+                    std::ffi::CStr::from_bytes_with_nul(s).unwrap()
+                };
+            }
+            &**S
+        }
+    }
+}

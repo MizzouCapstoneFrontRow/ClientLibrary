@@ -13,3 +13,4 @@ path = "src/lib.rs"
 [dependencies]
 jni = { version = "0.19", features = ["invocation"] }
 libc = "0.2"
+lazy_static = "1.4"
