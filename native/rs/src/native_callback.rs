@@ -20,7 +20,7 @@ use jni::{
 };
 use crate::util::*;
 
-pub type CallbackFnPtr = extern "C" fn(*const *const c_void, *const *mut c_void);
+pub type CallbackFnPtr = unsafe extern "C" fn(*const *const c_void, *const *mut c_void);
 
 #[no_mangle]
 pub extern "C" fn JNI_OnLoad_NativeCallback(
@@ -54,7 +54,7 @@ macro_rules! marshall_primitive {
             fn release(self: Box<Self>, _env: JNIEnv<'a>) -> JResult<()> { Ok(()) }
         }
         impl<'a> OutputMarshall<'a> for $t {
-            fn default_return(env: JNIEnv<'a>) -> JResult<Box<Self>> {
+            fn default_return(_env: JNIEnv<'a>) -> JResult<Box<Self>> {
                 Ok(Box::new( $default ))
             }
             fn data(&mut self) -> *mut c_void { self as *mut Self as *mut c_void }
@@ -74,9 +74,11 @@ marshall_primitive!(i64, "longValue", "()J", j, "java/lang/Long", "(J)V", 0);
 marshall_primitive!(f32, "floatValue", "()F", f, "java/lang/Float", "(F)V", 0.0);
 marshall_primitive!(f64, "doubleValue", "()D", d, "java/lang/Double", "(D)V", 0.0);
 
+#[derive(Debug, Default)]
+struct NoCopy;
 struct StringMarshall<'a> {
     data: *const c_char,
-    string_object: Option<JString<'a>>,
+    env: Option<(JNIEnv<'a>, JString<'a>, NoCopy)>,
 }
 
 impl<'a> InputMarshall<'a> for StringMarshall<'a> {
@@ -85,29 +87,25 @@ impl<'a> InputMarshall<'a> for StringMarshall<'a> {
         let data = env.get_string_utf_chars(string_object)?;
         Ok(Box::new(StringMarshall{
             data,
-            string_object: Some(string_object),
+            env: Some((env, string_object, NoCopy)),
         }))
     }
     fn data(&self) -> *const c_void {
         &self.data as *const *const c_char as *const c_void
     }
-    fn release(self: Box<Self>, env: JNIEnv<'a>) -> JResult<()>{
-        let StringMarshall {
-            data,
-            string_object,
-        } = *self;
-        let string_object = string_object.unwrap();
-        env.release_string_utf_chars(string_object, data)?;
+    fn release(mut self: Box<Self>, _env: JNIEnv<'a>) -> JResult<()>{
+        let (env, string_object, _) = self.env.take().unwrap();
+        env.release_string_utf_chars(string_object, self.data)?;
         env.delete_local_ref(string_object.into())?;
         Ok(())
     }
 }
 
 impl<'a> OutputMarshall<'a> for StringMarshall<'a> {
-    fn default_return(env: JNIEnv<'a>) -> JResult<Box<Self>> {
+    fn default_return(_env: JNIEnv<'a>) -> JResult<Box<Self>> {
         Ok(Box::new(StringMarshall {
             data: std::ptr::null(),
-            string_object: None,
+            env: None,
         }))
     }
     fn data(&mut self) -> *mut c_void {
@@ -121,6 +119,16 @@ impl<'a> OutputMarshall<'a> for StringMarshall<'a> {
         }
         let string = unsafe { CStr::from_ptr(self.data) }.to_str().expect("String was not UTF8");
         env.new_string(string).map(Into::into)
+    }
+}
+
+
+impl<'a> std::ops::Drop for StringMarshall<'a> {
+    fn drop(&mut self) {
+        if let Some((env, string_object, _)) = self.env.take() {
+            env.release_string_utf_chars(string_object, self.data).unwrap_or_else(|_| eprintln!("Failed to release utf chars (memory leak)."));
+            env.delete_local_ref(string_object.into()).unwrap_or_else(|_| eprintln!("Failed to release utf chars (memory leak)."));
+        }
     }
 }
 
@@ -190,7 +198,8 @@ pub extern "C" fn Java_frontrow_client_NativeCallback_call(
         drop(parameters);
         drop(returns);
 
-        parameterbuffer.into_iter().map(|p| p.release(env)).collect::<Vec<_>>().into_iter().collect::<JResult<_>>()?;
+        // Release all parameters (if one fails, the rest will be `drop`ped, but not `release`d
+        parameterbuffer.into_iter().map(|p| p.release(env)).collect::<JResult<_>>()?;
 
         let returns = env.new_object_array(return_count, "java/lang/Object", JObject::null())?;
         for (i, value) in returnbuffer.into_iter().enumerate() {
