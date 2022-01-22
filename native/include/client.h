@@ -24,8 +24,8 @@ struct ArrayInputParameter_t {
 };
 struct ArrayOutputParameter_t {
     int length;
-    const void * data;
-    void (*release)(const void*);
+    void *data;
+    void (*release)(int, void*);
 };
 
 /**

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include "client.h"
 
@@ -41,7 +42,7 @@ const char *multiply_returns[][2] = {
 };
 
 // Signature: (double[] x) -> (double average)
-// so parameters[0] points to a struct {const int length; const void *data;}, and data points to a double[length]
+// so parameters[0] points to a struct ArrayInputParameter_t {const int length; const void *data;}, and data points to a double[length]
 // so parameters[2] is NULL
 // so returns[0] points to an int product
 // so returns[1] is NULL
@@ -61,6 +62,38 @@ const char *average_parameters[][2] = {
 };
 const char *average_returns[][2] = {
     {"average", "double"},
+    {NULL, NULL},
+};
+
+// Signature: (int n) -> (int[] seq)
+// so parameters[0] points to a const int
+// so parameters[1] is NULL
+// so returns[0] points to a struct ArrayOutputParameter_t {int length; const void *data;, void(*release)(int, const void*)}
+// so returns[1] is NULL
+void sequence_free(int length, void *data) {
+    (void)length;
+    free(data);
+}
+void sequence_callback(const void *const*const parameters, void *const*const returns) {
+    const int n = *(const int*)parameters[0];
+    struct ArrayOutputParameter_t *seq = (struct ArrayOutputParameter_t*)returns[0];
+
+    int *sequence = malloc(n * sizeof(int));
+    seq->data = sequence;
+    if (sequence) {
+        seq->length = n;
+        seq->release = sequence_free;
+        for (int i = 0; i < n; ++i) {
+            sequence[i] = i;
+        }
+    }
+}
+const char *sequence_parameters[][2] = {
+    {"n", "int"},
+    {NULL, NULL},
+};
+const char *sequence_returns[][2] = {
+    {"seq", "int[]"},
     {NULL, NULL},
 };
 
@@ -84,6 +117,10 @@ int main() {
 
     printf("registering \"average\" function\n");
     success = RegisterFunction(handle, "average", average_parameters, average_returns, average_callback);
+    printf("success: %d\n", (int)success);
+
+    printf("registering \"sequence\" function\n");
+    success = RegisterFunction(handle, "sequence", sequence_parameters, sequence_returns, sequence_callback);
     printf("success: %d\n", (int)success);
 
     printf("updating\n");

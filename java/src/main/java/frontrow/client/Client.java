@@ -84,6 +84,15 @@ public class Client {
         double[] arr = new double[]{1, 2, 3, 4, 5, 20};
         result = average.call(arr);
         System.out.println("avg(" + arr + ") = " + (Double)result[0]);
+
+        Callback sequence = functions.get("sequence").callback;
+        result = sequence.call((Integer)20);
+        int[] seq = (int[])result[0];
+        System.out.print("seq(" + 20 + ") = {");
+        for (int i : seq) {
+            System.out.print(i + ", ");
+        }
+        System.out.println("}");
     }
 
     /**
