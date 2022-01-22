@@ -68,7 +68,7 @@ const char *average_returns[][2] = {
 // Signature: (int n) -> (int[] seq)
 // so parameters[0] points to a const int
 // so parameters[1] is NULL
-// so returns[0] points to a struct ArrayOutputParameter_t {int length; const void *data;, void(*release)(int, const void*)}
+// so returns[0] points to a struct ArrayOutputParameter_t {int length; void *data;, void(*release)(int, void*)}
 // so returns[1] is NULL
 void sequence_free(int length, void *data) {
     (void)length;
@@ -97,6 +97,37 @@ const char *sequence_returns[][2] = {
     {NULL, NULL},
 };
 
+// Signature: (bool[] values) -> (int trues, int falses)
+// so parameters[0] points to a struct ArrayOutputParameter_t {const int length; void *data;}
+// so parameters[1] is NULL
+// so returns[0] points to an int
+// so returns[1] points to an int
+// so returns[2] is NULL
+void count_bools_callback(const void *const*const parameters, void *const*const returns) {
+    const struct ArrayInputParameter_t values_struct = *(const struct ArrayInputParameter_t*)parameters[0];
+    const bool *values = (const bool *)values_struct.data;
+    const int values_len = values_struct.length;
+    int *trues = (int*)returns[0];
+    int *falses = (int*)returns[1];
+
+    for (int i = 0; i < values_len; ++i) {
+        if (values[i]) {
+            ++*trues;
+        } else {
+            ++*falses;
+        }
+    }
+}
+const char *count_bools_parameters[][2] = {
+    {"values", "bool[]"},
+    {NULL, NULL},
+};
+const char *count_bools_returns[][2] = {
+    {"trues", "int"},
+    {"falses", "int"},
+    {NULL, NULL},
+};
+
 int main() {
     ClientHandle handle = InitializeLibrary("./ClientLibrary.jar");
     printf("handle: %p\n", handle);
@@ -121,6 +152,10 @@ int main() {
 
     printf("registering \"sequence\" function\n");
     success = RegisterFunction(handle, "sequence", sequence_parameters, sequence_returns, sequence_callback);
+    printf("success: %d\n", (int)success);
+
+    printf("registering \"count_bools\" function\n");
+    success = RegisterFunction(handle, "count_bools", count_bools_parameters, count_bools_returns, count_bools_callback);
     printf("success: %d\n", (int)success);
 
     printf("updating\n");

@@ -93,6 +93,11 @@ public class Client {
             System.out.print(i + ", ");
         }
         System.out.println("}");
+
+        Callback count_bools = functions.get("count_bools").callback;
+        boolean[] arr2 = new boolean[]{true, true, false, true, true, false};
+        result = count_bools.call(arr2);
+        System.out.println("trues: " + (Integer)result[0] + "; falses: " + (Integer)result[1]);
     }
 
     /**

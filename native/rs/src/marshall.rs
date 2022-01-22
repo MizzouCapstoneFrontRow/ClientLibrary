@@ -84,6 +84,7 @@ lazy_static::lazy_static! {
         (c_str!("long[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<i64>)),
         (c_str!("float[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<f32>)),
         (c_str!("double[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<f64>)),
+        (c_str!("bool[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<BoolMarshall>)),
     ]);
     pub(crate) static ref OUTPUT_MARSHALLERS: HashMap<&'static CStr, OutputMarshaller> = HashMap::from([
         (c_str!("byte"), dynify_output_marshaller!(i8)),
@@ -100,6 +101,7 @@ lazy_static::lazy_static! {
         (c_str!("long[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<i64>)),
         (c_str!("float[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<f32>)),
         (c_str!("double[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<f64>)),
+        (c_str!("bool[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<BoolMarshall>)),
     ]);
 }
 macro_rules! marshall_primitive {
@@ -204,7 +206,8 @@ impl std::ops::Drop for OutputStringMarshall {
     }
 }
 
-#[repr(C)]
+#[repr(transparent)]
+#[derive(Default, Clone, Copy)]
 struct BoolMarshall {
     data: u8,
 }
@@ -240,8 +243,8 @@ trait Primitive: Sized {
     fn ty() -> &'static str;
     fn unwrap_jvalue<'a>(value: JValue<'a>) -> Option<Self>;
     fn get_array<'a>(env: JNIEnv<'a>, array: jarray) -> JResult<Vec<Self>>;
-    fn set_array<'a>(env: JNIEnv<'a>, array: jarray, buf: &[Self]) -> JResult<()>;
-    fn new_array<'a>(env: JNIEnv<'a>, buf: &[Self]) -> JResult<jarray>;
+    fn set_array<'a>(env: JNIEnv<'a>, array: jarray, buf: &mut [Self]) -> JResult<()>;
+    fn new_array<'a>(env: JNIEnv<'a>, buf: &mut [Self]) -> JResult<jarray>;
 }
 macro_rules! impl_primitive {
     ($t:ty, $ty:literal, $field:ident, $get_array_region:ident, $set_array_region:ident, $new_array:ident) => {
@@ -254,10 +257,10 @@ macro_rules! impl_primitive {
                 env.$get_array_region(array, 0, &mut vec)?;
                 Ok(vec)
             }
-            fn set_array<'a>(env: JNIEnv<'a>, array: jarray, buf: &[Self]) -> JResult<()> {
+            fn set_array<'a>(env: JNIEnv<'a>, array: jarray, buf: &mut [Self]) -> JResult<()> {
                 env.$set_array_region(array, 0, buf)
             }
-            fn new_array<'a>(env: JNIEnv<'a>, buf: &[Self]) -> JResult<jarray> {
+            fn new_array<'a>(env: JNIEnv<'a>, buf: &mut [Self]) -> JResult<jarray> {
                 let array = env.$new_array(buf.len().try_into().expect("invalid length"))?;
                 Self::set_array(env, array, buf)?;
                 Ok(array)
@@ -271,6 +274,38 @@ impl_primitive!(i32, "I", i, get_int_array_region, set_int_array_region, new_int
 impl_primitive!(i64, "J", j, get_long_array_region, set_long_array_region, new_long_array);
 impl_primitive!(f32, "F", f, get_float_array_region, set_float_array_region, new_float_array);
 impl_primitive!(f64, "D", d, get_double_array_region, set_double_array_region, new_double_array);
+
+impl Primitive for BoolMarshall {
+    fn ty() -> &'static str { "Z" }
+    fn unwrap_jvalue<'a>(value: JValue<'a>) -> Option<Self> {
+        Some(Self { data: value.z().ok()? as u8 })
+    }
+    fn get_array<'a>(env: JNIEnv<'a>, array: jarray) -> JResult<Vec<Self>> {
+        let length = env.get_array_length(array)?;
+        let mut vec = vec![0u8; length as usize];
+        env.get_boolean_array_region(array, 0, &mut vec)?;
+        let vec = unsafe {
+//            let (ptr, len, cap) = vec.into_raw_parts();
+            let ptr = vec.as_mut_ptr();
+            let len = vec.len();
+            let cap = vec.capacity();
+            std::mem::forget(vec);
+            Vec::<BoolMarshall>::from_raw_parts(ptr as *mut BoolMarshall, len, cap)
+        };
+        Ok(vec)
+    }
+    fn set_array<'a>(env: JNIEnv<'a>, array: jarray, buf: &mut [Self]) -> JResult<()> {
+        buf.iter_mut().for_each(|b| b.data = (b.data != 0) as u8);
+        let buf: &[Self] = buf;
+        let buf: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len()) };
+        env.set_boolean_array_region(array, 0, buf)
+    }
+    fn new_array<'a>(env: JNIEnv<'a>, buf: &mut [Self]) -> JResult<jarray> {
+        let array = env.new_boolean_array(buf.len().try_into().expect("invalid length"))?;
+        Self::set_array(env, array, buf)?;
+        Ok(array)
+    }
+}
 
 #[repr(C)]
 /// Called struct ArrayInputParameter_t in C
@@ -330,7 +365,7 @@ impl<'a, T: Default + Copy + Primitive> OutputMarshall<'a> for OutputPrimitiveAr
     fn to_object(self: Box<Self>, env: JNIEnv<'a>, ) -> JResult<JObject<'a>> {
         if self.data.is_null() {
             if self.length <= 0 { // return empty array
-                <T as Primitive>::new_array(env, &[]).map(Into::into)
+                <T as Primitive>::new_array(env, &mut []).map(Into::into)
             } else {
                 env.throw_new("java/lang/NullPointerException", "returned marshalled string was null")?;
                 Err(jni::errors::Error::NullPtr("returned marshalled string was null"))
