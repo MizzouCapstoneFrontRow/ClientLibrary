@@ -14,6 +14,7 @@ use jni::{
     objects::*,
     errors::Result as JResult,
     sys::{
+        jboolean,
         jint,
         jlong,
         jobject,
@@ -75,6 +76,7 @@ lazy_static::lazy_static! {
         (c_str!("long"), dynify_input_marshaller!(i64)),
         (c_str!("float"), dynify_input_marshaller!(f32)),
         (c_str!("double"), dynify_input_marshaller!(f64)),
+        (c_str!("bool"), dynify_input_marshaller!(BoolMarshall)),
         (c_str!("string"), dynify_input_marshaller!(InputStringMarshall)),
         (c_str!("byte[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<i8>)),
         (c_str!("short[]"), dynify_input_marshaller!(InputPrimitiveArrayMarshall<i16>)),
@@ -90,6 +92,7 @@ lazy_static::lazy_static! {
         (c_str!("long"), dynify_output_marshaller!(i64)),
         (c_str!("float"), dynify_output_marshaller!(f32)),
         (c_str!("double"), dynify_output_marshaller!(f64)),
+        (c_str!("bool"), dynify_output_marshaller!(BoolMarshall)),
         (c_str!("string"), dynify_output_marshaller!(OutputStringMarshall)),
         (c_str!("byte[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<i8>)),
         (c_str!("short[]"), dynify_output_marshaller!(OutputPrimitiveArrayMarshall<i16>)),
@@ -183,7 +186,7 @@ impl<'a> OutputMarshall<'a> for OutputStringMarshall {
     fn data(&mut self) -> *mut c_void {
         self as *mut Self as *mut c_void
     }
-    fn to_object(self: Box<Self>, env: JNIEnv<'a>, ) -> JResult<JObject<'a>> {
+    fn to_object(self: Box<Self>, env: JNIEnv<'a>) -> JResult<JObject<'a>> {
         if self.data.is_null() {
             env.throw_new("java/lang/NullPointerException", "returned marshalled string was null")?;
             return Err(jni::errors::Error::NullPtr("returned marshalled string was null"));
@@ -198,6 +201,38 @@ impl std::ops::Drop for OutputStringMarshall {
         if let Some(release) = self.release {
             unsafe { release(self.data) }
         }
+    }
+}
+
+#[repr(C)]
+struct BoolMarshall {
+    data: u8,
+}
+
+impl<'a> InputMarshall<'a> for BoolMarshall {
+    fn from_object(env: JNIEnv<'a>, object: JObject<'a>) -> JResult<Box<Self>> {
+        let data: jboolean = env.call_method(object, "booleanValue", "()Z", &[])?.z()?.into();
+        Ok(Box::new(BoolMarshall{
+            data,
+        }))
+    }
+    fn data(&self) -> *const c_void {
+        &self.data as *const u8 as *const c_void
+    }
+    fn release(mut self: Box<Self>, _env: JNIEnv<'a>) -> JResult<()> {
+        Ok(())
+    }
+}
+
+impl<'a> OutputMarshall<'a> for BoolMarshall {
+    fn default_return(env: JNIEnv<'a>) -> JResult<Box<Self>> {
+        Ok(Box::new(BoolMarshall { data: 0 }))
+    }
+    fn data(&mut self) -> *mut c_void {
+        &mut self.data as *mut u8 as *mut c_void
+    }
+    fn to_object(self: Box<Self>, env: JNIEnv<'a>) -> JResult<JObject<'a>> {
+        env.new_object("java/lang/Boolean", "(Z)V", &[(self.data != 0).into()]) // self.data != 0 to ensure that we don't pass non-{0,1} value into Java
     }
 }
 
