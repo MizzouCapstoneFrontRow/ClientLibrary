@@ -19,6 +19,7 @@ use jni::{
     },
 };
 use crate::util::*;
+use crate::marshall::*;
 
 pub type CallbackFnPtr = unsafe extern "C" fn(*const *const c_void, *const *mut c_void);
 
@@ -28,108 +29,6 @@ pub extern "C" fn JNI_OnLoad_NativeCallback(
     _reserved: *mut c_void,
 ) -> jint {
     jni::sys::JNI_VERSION_1_8
-}
-
-trait InputMarshall<'a> {
-    fn from_object(env: JNIEnv<'a>, object: JObject<'a>) -> JResult<Box<Self>> where Self: Sized;
-    fn data(&self) -> *const c_void;
-    fn release(self: Box<Self>, env: JNIEnv<'a>) -> JResult<()>;
-}
-
-trait OutputMarshall<'a> {
-    fn default_return(env: JNIEnv<'a>) -> JResult<Box<Self>> where Self: Sized;
-    fn data(&mut self) -> *mut c_void;
-    fn to_object(self: Box<Self>, env: JNIEnv<'a>) -> JResult<JObject<'a>>;
-}
-
-macro_rules! marshall_primitive {
-    ( $t:ty, $from_method:literal, $from_sig:literal, $jvalue_unwrap:ident, $to_type:literal, $to_type_sig:literal, $default:literal ) => {
-        impl<'a> InputMarshall<'a> for $t {
-            fn from_object(env: JNIEnv<'a>, object: JObject<'a>) -> JResult<Box<Self>> {
-                Ok(Box::new(
-                    env.call_method(object, $from_method, $from_sig, &[])?. $jvalue_unwrap ()?
-                ))
-            }
-            fn data(&self) -> *const c_void { self as *const Self as *const c_void }
-            fn release(self: Box<Self>, _env: JNIEnv<'a>) -> JResult<()> { Ok(()) }
-        }
-        impl<'a> OutputMarshall<'a> for $t {
-            fn default_return(_env: JNIEnv<'a>) -> JResult<Box<Self>> {
-                Ok(Box::new( $default ))
-            }
-            fn data(&mut self) -> *mut c_void { self as *mut Self as *mut c_void }
-            fn to_object(self: Box<Self>, env: JNIEnv<'a>, ) -> JResult<JObject<'a>> {
-                env.new_object($to_type, $to_type_sig, &[(*self).into()])
-            }
-        }
-    };
-}
-
-marshall_primitive!(bool, "boolValue", "()Z", z, "java/lang/Boolean", "(Z)V", false);
-marshall_primitive!(i8, "byteValue", "()B", b, "java/lang/Byte", "(B)V", 0);
-marshall_primitive!(i16, "shortValue", "()S", s, "java/lang/Short", "(S)V", 0);
-marshall_primitive!(i32, "intValue", "()I", i, "java/lang/Integer", "(I)V", 0);
-marshall_primitive!(i64, "longValue", "()J", j, "java/lang/Long", "(J)V", 0);
-
-marshall_primitive!(f32, "floatValue", "()F", f, "java/lang/Float", "(F)V", 0.0);
-marshall_primitive!(f64, "doubleValue", "()D", d, "java/lang/Double", "(D)V", 0.0);
-
-#[derive(Debug, Default)]
-struct NoCopy;
-struct StringMarshall<'a> {
-    data: *const c_char,
-    env: Option<(JNIEnv<'a>, JString<'a>, NoCopy)>,
-}
-
-impl<'a> InputMarshall<'a> for StringMarshall<'a> {
-    fn from_object(env: JNIEnv<'a>, object: JObject<'a>) -> JResult<Box<Self>> {
-        let string_object: JString<'a> = env.call_method(object, "toString", "()Ljava/lang/String;", &[])?.l()?.into();
-        let data = env.get_string_utf_chars(string_object)?;
-        Ok(Box::new(StringMarshall{
-            data,
-            env: Some((env, string_object, NoCopy)),
-        }))
-    }
-    fn data(&self) -> *const c_void {
-        &self.data as *const *const c_char as *const c_void
-    }
-    fn release(mut self: Box<Self>, _env: JNIEnv<'a>) -> JResult<()>{
-        let (env, string_object, _) = self.env.take().unwrap();
-        env.release_string_utf_chars(string_object, self.data)?;
-        env.delete_local_ref(string_object.into())?;
-        Ok(())
-    }
-}
-
-impl<'a> OutputMarshall<'a> for StringMarshall<'a> {
-    fn default_return(_env: JNIEnv<'a>) -> JResult<Box<Self>> {
-        Ok(Box::new(StringMarshall {
-            data: std::ptr::null(),
-            env: None,
-        }))
-    }
-    fn data(&mut self) -> *mut c_void {
-        &mut self.data as *mut *const c_char as *mut c_void
-    }
-    fn to_object(self: Box<Self>, env: JNIEnv<'a>, ) -> JResult<JObject<'a>> {
-        dbg!("TODO: fix memory leaks");
-        if self.data.is_null() {
-            env.throw_new("java/lang/NullPointerException", "returned marshalled string was null")?;
-            return Err(jni::errors::Error::NullPtr("returned marshalled string was null"));
-        }
-        let string = unsafe { CStr::from_ptr(self.data) }.to_str().expect("String was not UTF8");
-        env.new_string(string).map(Into::into)
-    }
-}
-
-
-impl<'a> std::ops::Drop for StringMarshall<'a> {
-    fn drop(&mut self) {
-        if let Some((env, string_object, _)) = self.env.take() {
-            env.release_string_utf_chars(string_object, self.data).unwrap_or_else(|_| eprintln!("Failed to release utf chars (memory leak)."));
-            env.delete_local_ref(string_object.into()).unwrap_or_else(|_| eprintln!("Failed to release utf chars (memory leak)."));
-        }
-    }
 }
 
 #[no_mangle]
@@ -161,15 +60,24 @@ pub extern "C" fn Java_frontrow_client_NativeCallback_call(
             let descriptor = env.get_object_array_element(parameter_descriptors, i)?;
             let r#type = env.get_field(descriptor, "type", "Ljava/lang/String;")?.l()?;
             let type_jstr = env.get_string(r#type.into())?;
-            if &**type_jstr == c_str!("int") {
-                parameterbuffer.push(<i32 as InputMarshall>::from_object(env, parameter)?);
-            } else if &**type_jstr == c_str!("string") {
-                parameterbuffer.push(<StringMarshall as InputMarshall>::from_object(env, parameter)?);
-            } else {
-                println!("TODO: do this validation in RegisterFunction");
-                env.throw_new("java/lang/IllegalArgumentException", format!("unrecognized parameter type: {:?}", &**type_jstr))?;
-                return Err(jni::errors::Error::JavaException);
-            }
+            let marshaller = unwrap_or_return!(
+                INPUT_MARSHALLERS.get::<CStr>(&type_jstr),
+                {
+                    println!("TODO: also do this validation in RegisterFunction: unrecognized parameter type: {:?}", &**type_jstr);
+                    env.throw_new("java/lang/IllegalArgumentException", format!("unrecognized parameter type: {:?}", &**type_jstr))?;
+                    Err(jni::errors::Error::JavaException)
+                }
+            );
+            parameterbuffer.push(marshaller(env, parameter)?);
+//            if &**type_jstr == c_str!("int") {
+//                parameterbuffer.push(<i32 as InputMarshall>::from_object(env, parameter)?);
+////            } else if &**type_jstr == c_str!("string") {
+////                parameterbuffer.push(<StringMarshall as InputMarshall>::from_object(env, parameter)?);
+//            } else {
+//                println!("TODO: do this validation in RegisterFunction");
+//                env.throw_new("java/lang/IllegalArgumentException", format!("unrecognized parameter type: {:?}", &**type_jstr))?;
+//                return Err(jni::errors::Error::JavaException);
+//            }
         }
 
         let mut returnbuffer: Vec<Box<dyn OutputMarshall>> = Vec::with_capacity(return_count as usize);
@@ -177,14 +85,20 @@ pub extern "C" fn Java_frontrow_client_NativeCallback_call(
             let descriptor = env.get_object_array_element(return_descriptors, i)?;
             let r#type = env.get_field(descriptor, "type", "Ljava/lang/String;")?.l()?;
             let type_jstr = env.get_string(r#type.into())?;
+            let marshaller = unwrap_or_return!(
+                OUTPUT_MARSHALLERS.get::<CStr>(&type_jstr),
+                {
+                    println!("TODO: also do this validation in RegisterFunction: unrecognized parameter type: {:?}", &**type_jstr);
+                    env.throw_new("java/lang/IllegalArgumentException", format!("unrecognized return type: {:?}", &**type_jstr))?;
+                    Err(jni::errors::Error::JavaException)
+                }
+            );
+            returnbuffer.push(marshaller(env)?);
+
             if &**type_jstr == c_str!("int") {
-                returnbuffer.push(<i32 as OutputMarshall>::default_return(env)?);
-            } else if &**type_jstr == c_str!("string") {
-                returnbuffer.push(<StringMarshall as OutputMarshall>::default_return(env)?);
+//            } else if &**type_jstr == c_str!("string") {
+//                returnbuffer.push(<StringMarshall as OutputMarshall>::default_return(env)?);
             } else {
-                println!("TODO: do this validation in RegisterFunction");
-                env.throw_new("java/lang/IllegalArgumentException", format!("unrecognized return type: {:?}", &**type_jstr))?;
-                return Err(jni::errors::Error::JavaException);
             }
         }
 

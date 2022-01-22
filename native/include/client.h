@@ -10,6 +10,24 @@ extern "C" {
 struct ClientHandle_t;
 typedef struct ClientHandle_t *ClientHandle;
 
+struct StringInputParameter_t {
+    const char *const string;
+};
+struct StringOutputParameter_t {
+    const char *string;
+    void (*release)(const char*);
+};
+
+struct ArrayInputParameter_t {
+    const int length;
+    const void *const data;
+};
+struct ArrayOutputParameter_t {
+    int length;
+    const void * data;
+    void (*release)(const void*);
+};
+
 /**
 * Initialize the library and return a handle that will be passed to all library functions.
 * On success: returns a non-null handle (pointer).

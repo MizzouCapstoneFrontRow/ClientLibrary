@@ -2,6 +2,7 @@
 #[macro_use]
 pub(crate) mod util;
 pub(crate) mod native_callback;
+pub(crate) mod marshall;
 
 use std::{
     ffi::CStr,

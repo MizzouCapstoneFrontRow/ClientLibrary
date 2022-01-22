@@ -40,6 +40,30 @@ const char *multiply_returns[][2] = {
     {NULL, NULL},
 };
 
+// Signature: (double[] x) -> (double average)
+// so parameters[0] points to a struct {const int length; const void *data;}, and data points to a double[length]
+// so parameters[2] is NULL
+// so returns[0] points to an int product
+// so returns[1] is NULL
+void average_callback(const void *const*const parameters, void *const*const returns) {
+    const struct ArrayInputParameter_t x = *(const struct ArrayInputParameter_t*)parameters[0];
+    const double *data = (const double*)x.data;
+    double *average = (double*)returns[0];
+
+    double acc = 0.0;
+    for (int i = 0; i < x.length; ++i) acc += data[i];
+
+    *average = x.length ? acc / x.length : 0.0;
+}
+const char *average_parameters[][2] = {
+    {"x", "double[]"},
+    {NULL, NULL},
+};
+const char *average_returns[][2] = {
+    {"average", "double"},
+    {NULL, NULL},
+};
+
 int main() {
     ClientHandle handle = InitializeLibrary("./ClientLibrary.jar");
     printf("handle: %p\n", handle);
@@ -56,6 +80,10 @@ int main() {
 
     printf("registering \"multiply\" function\n");
     success = RegisterFunction(handle, "multiply", multiply_parameters, multiply_returns, multiply_callback);
+    printf("success: %d\n", (int)success);
+
+    printf("registering \"average\" function\n");
+    success = RegisterFunction(handle, "average", average_parameters, average_returns, average_callback);
     printf("success: %d\n", (int)success);
 
     printf("updating\n");

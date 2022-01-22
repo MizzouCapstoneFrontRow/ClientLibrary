@@ -75,9 +75,15 @@ public class Client {
         System.out.println(functions);
         Callback print = functions.get("print").callback;
         print.call("Hello from a callback!");
+
         Callback multiply = functions.get("multiply").callback;
         Object[] result = multiply.call(4, 5);
         System.out.println("4 * 5 = " + (Integer)result[0]);
+
+        Callback average = functions.get("average").callback;
+        double[] arr = new double[]{1, 2, 3, 4, 5, 20};
+        result = average.call(arr);
+        System.out.println("avg(" + arr + ") = " + (Double)result[0]);
     }
 
     /**
