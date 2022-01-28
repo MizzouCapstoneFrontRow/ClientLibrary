@@ -64,6 +64,38 @@ bool RegisterFunction(
 );
 
 /**
+* Registers a sensor.
+* TODO: document how callback works
+* @param handle     The client handle
+* @param output     Type descriptor of output
+* @param callback   The callback function to call when the server reads the sensor
+* @returns bool success (Was the sensor registered successfully)
+* Type descriptor: A type descriptor is const char*, the type of the parameter.
+*/
+bool RegisterSensor(
+    ClientHandle handle,
+    const char *name,
+    const char *output_type,
+    void (*callback)(void *const)
+);
+
+/**
+* Registers an axis.
+* TODO: document how callback works
+* @param handle     The client handle
+* @param input      Type descriptor of input
+* @param callback   The callback function to call when the server moves the axis
+* @returns bool success (Was the axis registered successfully)
+* Type descriptor: A type descriptor is const char*, the type of the parameter.
+*/
+bool RegisterAxis(
+    ClientHandle handle,
+    const char *name,
+    const char *input_type,
+    void (*callback)(const void *const)
+);
+
+/**
 * Updates internal library state and calls any necessary callbacks.
 */
 bool LibraryUpdate(ClientHandle);

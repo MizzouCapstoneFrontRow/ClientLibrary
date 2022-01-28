@@ -1,24 +1,34 @@
 macro_rules! unwrap_or_return {
-    ( $value:expr, $retval:expr $(,)? ) => {
+    ( $value:expr, $retval:expr , with_message($e:pat) $( $msg:tt )* ) => {
+        // Option<T> -> Option<Option<T>> -> Option<T>
+        // Result<T> -> Result<Option<T>> -> Option<T>
+        match ($value) {
+            Ok(x) => x,
+            Err($e) => {
+                 eprintln!($($msg)*);
+                return $retval
+            },
+        }
+    };
+    ( $value:expr, $retval:expr $(, $( with_message $( $msg:tt )* )? )? ) => {
         // Option<T> -> Option<Option<T>> -> Option<T>
         // Result<T> -> Result<Option<T>> -> Option<T>
         match ($value).map(Some).unwrap_or_default() {
             Some(x) => x,
-            None => return $retval,
+            None => {
+                $( $( eprintln!($($msg)*); )? )?
+                return $retval
+            },
         }
     };
 }
 
 macro_rules! shadow_or_return {
-    ( 2 $( $rest:tt )* ) => {
-        shadow_or_return!($( $rest )*);
-        shadow_or_return!($( $rest )*);
+    ( mut $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
+        let mut $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
     };
-    ( mut $shadow:ident, $retval:expr ) => {
-        let mut $shadow = unwrap_or_return!($shadow, $retval);
-    };
-    ( $shadow:ident, $retval:expr ) => {
-        let $shadow = unwrap_or_return!($shadow, $retval);
+    ( $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
+        let $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
     };
 }
 

@@ -180,41 +180,131 @@ pub extern "C" fn RegisterFunction(
     returns: *const [*const c_char; 2],
     callback: Option<extern "C" fn (*const *const c_void, *const *mut c_void)>,
 ) -> bool {
-    shadow_or_return!(handle, false);
-    shadow_or_return!(callback, false);
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false);
+    shadow_or_return!(handle,   false, with_message "Error registering function: Invalid handle (null)");
+    shadow_or_return!(callback, false, with_message "Error registering function: Invalid callback (null)");
+    shadow_or_return!(name,     false, with_message "Error registering function: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering function: Cannot register functions after connecting to server.");
     let name: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(unwrap_or_return!(name, false).as_ptr()) }.to_str(),
+        unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
+        with_message "Error registering function: Invalid handle (null)",
     );
 
     if handle.functions.contains_key(name) {
-        eprintln!("Attempted to register function {:?}, but a function with that name was already registered.", name);
+        eprintln!("Error registering function: attempted to register function {:?}, but a function with that name was already registered.", name);
         return false;
     }
 
-    let parameters = match unsafe { parse_descriptors(parameters) } {
-        Ok(p) => p,
-        Err(s) => { eprintln!("Error parsing parameters: {}", s); return false },
-    };
-    let returns = match unsafe { parse_descriptors(returns) } {
-        Ok(r) => r,
-        Err(s) => { eprintln!("Error parsing returns: {}", s); return false },
-    };
+    let parameters = unwrap_or_return!(
+        unsafe { parse_descriptors(parameters) },
+        false,
+        with_message(s) "Error parsing function parameters: {}", s,
+    );
+    let returns = unwrap_or_return!(
+        unsafe { parse_descriptors(returns) },
+        false,
+        with_message(s) "Error parsing function returns: {}", s,
+    );
 
     dbg!(&parameters);
     dbg!(&returns);
 
-    let function = match Function::new(
-        parameters,
-        returns,
-        callback,
-    ) {
-        Ok(f) => f,
-        Err(e) => { eprintln!("Error registering function: {:?}", e); return false },
-    };
+    let function = unwrap_or_return!(
+        Function::new(parameters, returns, callback),
+        false,
+        with_message(e) "Error registering function: {:?}", e
+    );
 
     handle.functions.insert(name.to_owned(), function);
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn RegisterSensor(
+    handle: Option<&mut ClientHandle>,
+    name: Option<NonNull<c_char>>,
+    output_type: Option<NonNull<c_char>>,
+    callback: Option<extern "C" fn (*mut c_void)>,
+) -> bool {
+    shadow_or_return!(handle,       false, with_message "Error registering sensor: Invalid handle (null)");
+    shadow_or_return!(callback,     false, with_message "Error registering sensor: Invalid callback (null)");
+    shadow_or_return!(name,         false, with_message "Error registering sensor: Invalid name (null)");
+    shadow_or_return!(output_type,  false, with_message "Error registering sensor: Invalid output type (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
+    let name: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering sensor: Invalid name (not UTF-8)",
+    );
+    let output_type: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(output_type.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering sensor: Invalid output type (not UTF-8)",
+    );
+
+    if handle.sensors.contains_key(name) {
+        eprintln!("Attempted to register sensor {:?}, but a function with that name was already registered.", name);
+        return false;
+    }
+
+    let output_type = unwrap_or_return!(
+        Type::from_str(output_type),
+        false,
+        with_message "Error registering axis: Unrecognized type when parsing sensor output type",
+    );
+
+    let sensor = unwrap_or_return!(
+        Sensor::new(output_type, callback),
+        false,
+        with_message(e) "Error registering sensor: {:?}", e
+    );
+
+    handle.sensors.insert(name.to_owned(), sensor);
+    true
+}
+
+
+#[no_mangle]
+pub extern "C" fn RegisterAxis(
+    handle: Option<&mut ClientHandle>,
+    name: Option<NonNull<c_char>>,
+    input_type: Option<NonNull<c_char>>,
+    callback: Option<extern "C" fn (*const c_void)>,
+) -> bool {
+    shadow_or_return!(handle,     false, with_message "Error registering axis: Invalid handle (null)");
+    shadow_or_return!(callback,   false, with_message "Error registering axis: Invalid callback (null)");
+    shadow_or_return!(name,       false, with_message "Error registering axis: Invalid name (null)");
+    shadow_or_return!(input_type, false, with_message "Error registering axis: Invalid input type (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering axis: Cannot register axes after connecting to server.");
+    let name: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering axis: Invalid name (not UTF-8)",
+    );
+    let input_type: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(input_type.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering axis: Invalid output type (not UTF-8)",
+    );
+
+    if handle.axes.contains_key(name) {
+        eprintln!("Error registering axis: Attempted to register axis {:?}, but an axis  with that name was already registered.", name);
+        return false;
+    }
+
+    let input_type = unwrap_or_return!(
+        Type::from_str(input_type),
+        false,
+        with_message "Error registering axis: Unrecognized type when parsing axis input type",
+    );
+
+    let axis = unwrap_or_return!(
+        Axis::new(input_type, callback),
+        false,
+        with_message(e) "Error registering axis: {:?}", e
+    );
+
+    handle.axes.insert(name.to_owned(), axis);
     true
 }
 
