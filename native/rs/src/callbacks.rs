@@ -65,14 +65,14 @@ pub(crate) struct Function {
 }
 
 pub(crate) struct Axis {
-    pub(crate) r#type: Type,
+    pub(crate) input_marshaller: InputMarshaller,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         input: *const libc::c_void,
     ),
 }
 
 pub(crate) struct Sensor {
-    pub(crate) r#type: Type,
+    pub(crate) output_marshaller: OutputMarshaller,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         output: *mut libc::c_void,
     ),
@@ -140,5 +140,43 @@ impl Function {
         drop(parameterbuffer);
         drop(returnbuffer);
         result
+    }
+}
+
+impl Axis {
+    pub(crate) fn new(
+        input_type: Type,
+        fn_ptr: unsafe extern "C" fn(
+            input: *const libc::c_void,
+        ),
+    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+        let input_marshaller = *INPUT_MARSHALLERS.get(&input_type).ok_or(format!("unsupported input type: {:?}", input_type))?;
+        Ok(Self { input_marshaller, fn_ptr })
+    }
+    pub(crate) fn call(&self, input: &RawValue) -> Result<(), Box<dyn std::error::Error + 'static>> {
+        let input: Box<dyn InputMarshall> = (self.input_marshaller)(input)?;
+        unsafe {
+            (self.fn_ptr)(input.data());
+        }
+        Ok(())
+    }
+}
+
+impl Sensor {
+    pub(crate) fn new(
+        output_type: Type,
+        fn_ptr: unsafe extern "C" fn(
+            input: *mut libc::c_void,
+        ),
+    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+        let output_marshaller = *OUTPUT_MARSHALLERS.get(&output_type).ok_or(format!("unsupported output type: {:?}", output_type))?;
+        Ok(Self { output_marshaller, fn_ptr })
+    }
+    pub(crate) fn call(&self) -> Result<Box<RawValue>, Box<dyn std::error::Error + 'static>> {
+        let mut output: Box<dyn OutputMarshall> = (self.output_marshaller)();
+        unsafe {
+            (self.fn_ptr)(output.data());
+        }
+        Ok(output.to_json()?)
     }
 }
