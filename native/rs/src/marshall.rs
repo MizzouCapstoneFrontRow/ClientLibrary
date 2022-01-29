@@ -8,14 +8,14 @@ use crate::util::*;
 
 
 pub(crate) trait InputMarshall {
-    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + 'static>> where Self: Sized;
+    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + Send + Sync + 'static>> where Self: Sized;
     fn data(&self) -> *const c_void;
 }
 
 pub(crate) trait OutputMarshall {
     fn empty() -> Box<Self> where Self: Sized;
     fn data(&mut self) -> *mut c_void;
-    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + 'static>>;
+    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + Send + Sync + 'static>>;
 }
 
 macro_rules! impl_primitive_marshall {
@@ -25,7 +25,7 @@ macro_rules! impl_primitive_marshall {
     };
     (@input $ty:ty) => {
         impl InputMarshall for $ty {
-            fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + 'static>> {
+            fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + Send + Sync + 'static>> {
                 Ok(Box::new(serde_json::from_str::<$ty>(json.get())?))
             }
             fn data(&self) -> *const c_void {
@@ -41,7 +41,7 @@ macro_rules! impl_primitive_marshall {
             fn data(&mut self) -> *mut c_void {
                 self as *mut Self as *mut c_void
             }
-            fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + 'static>> {
+            fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + Send + Sync + 'static>> {
                 Ok(RawValue::from_string(serde_json::to_string(&*self)?)?)
             }
         }
@@ -76,7 +76,7 @@ struct InputStringMarshall {
 }
     
 impl InputMarshall for InputStringMarshall {
-    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + 'static>> {
+    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + Send + Sync + 'static>> {
         eprintln!("TODO: check for memory leaks with strings");
         let data = serde_json::from_str::<CString>(json.get())?;
         let ptr = data.as_ptr();
@@ -99,7 +99,7 @@ struct InputArrayMarshall<T> {
 }
 
 impl<T: for<'a> serde::de::Deserialize<'a>> InputMarshall for InputArrayMarshall<T> {
-    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + 'static>> {
+    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + Send + Sync + 'static>> {
         let data = serde_json::from_str::<Vec<T>>(json.get())?;
         let length: i32 = data.len().try_into().or(Err("input array was too long"))?;
         let inner = InputArrayMarshallInner { length, data: data.as_ptr() as *const c_void };
@@ -123,7 +123,7 @@ struct InputStringArrayMarshall {
 }
 
 impl InputMarshall for InputStringArrayMarshall {
-    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + 'static>> {
+    fn from_json(json: &RawValue) -> Result<Box<Self>, Box<dyn Error + Send + Sync + 'static>> {
         eprintln!("TODO: check for memory leaks with strings");
         let data = serde_json::from_str::<Vec<CString>>(json.get())?;
         let length: i32 = data.len().try_into().or(Err("input array was too long"))?;
@@ -164,7 +164,7 @@ impl OutputMarshall for OutputStringMarshall {
     fn data(&mut self) -> *mut c_void {
         self as *mut Self as *mut c_void
     }
-    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + 'static>> {
+    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + Send + Sync + 'static>> {
         if self.data.is_null() {
             Err("output string was null pointer")?;
         }
@@ -201,7 +201,7 @@ impl<T: serde::ser::Serialize> OutputMarshall for OutputArrayMarshall<T> {
     fn data(&mut self) -> *mut c_void {
         self as *mut Self as *mut c_void
     }
-    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + 'static>> {
+    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + Send + Sync + 'static>> {
         let length: usize = match self.length {
             0 => { // empty array, return early
                 let slice: &[T] = &[];
@@ -263,7 +263,7 @@ impl OutputMarshall for OutputStringArrayMarshall {
     fn data(&mut self) -> *mut c_void {
         self as *mut Self as *mut c_void
     }
-    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + 'static>> {
+    fn to_json(&self) -> Result<Box<RawValue>, Box<dyn Error + Send + Sync + 'static>> {
         let length: usize = match self.length {
             0 => { // empty array, return early
                 let strings: Vec<&CStr> = vec![];
@@ -306,7 +306,7 @@ macro_rules! make_output_marshallers {
 use crate::callbacks::PrimType;
 use crate::callbacks::Type;
 
-pub(crate) type InputMarshaller = fn(&RawValue) -> Result<Box<dyn InputMarshall>, Box<dyn std::error::Error>>;
+pub(crate) type InputMarshaller = fn(&RawValue) -> Result<Box<dyn InputMarshall>, Box<dyn std::error::Error + Send + Sync + 'static>>;
 pub(crate) type OutputMarshaller = fn() -> Box<dyn OutputMarshall>;
 
 lazy_static::lazy_static! {

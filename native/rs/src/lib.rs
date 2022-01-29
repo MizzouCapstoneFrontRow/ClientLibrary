@@ -16,6 +16,7 @@ use libc::{c_char, c_void};
 use indexmap::map::IndexMap; 
 use util::*;
 use callbacks::*;
+use message::{Message, MessageInner, try_read_message, try_write_message};
 
 pub type Stream = ();
 
@@ -69,8 +70,8 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
     shadow_or_return!(mut handle, ());
     match *handle {
         Unconnected(_) => {}, // nothing to do
-        Connected(c) => {
-            eprintln!("TODO: send disconnect message");
+        Connected(handle) => {
+            try_write_message(&handle.connection, &Message::new(MessageInner::Disconnect {})); // TODO: error handle
         },
     };
 }
@@ -112,13 +113,12 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                 if let Some(function) = handle.functions.get(&name) {
                     let result = function.call(&parameters).unwrap(); // TODO: error handle
                     dbg!(&result);
-                    let reply = Message {
-                        message_id: 2345, // TODO
-                        inner: FunctionReturn {
+                    let reply = Message::new(
+                        FunctionReturn {
                             reply_to: message.message_id,
                             returns: result,
                         },
-                    };
+                    );
                     dbg!(&reply);
                     message::try_write_message(&handle.connection, &reply);// TODO: error handle
                 } else {
@@ -126,7 +126,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
 //                    Message
                 }
             },
-            _ => {},
+            _ => {todo!()},
         }
         
     }

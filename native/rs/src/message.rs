@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
 use std::net::TcpStream;
 use std::io::{Read, Write};
 use serde_json::value::{RawValue, to_raw_value};
 use polling::{Poller, Event};
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug)]
 pub struct Message {
@@ -11,16 +12,27 @@ pub struct Message {
     pub inner: MessageInner,
 }
 
+impl Message {
+    pub fn new(inner: MessageInner) -> Self {
+        static NEXT_MSG_ID: AtomicI64 = AtomicI64::new(1);
+        Self {
+            message_id: NEXT_MSG_ID.fetch_add(1, Ordering::Relaxed),
+            inner,
+        }
+    }
+}
+
 macro_rules! message_inner_enum_with_name {
     (
+        outer: $outer:ident
         $( #[$($meta:tt)*] )?
         $vis:vis enum $name:ident {
-            $( $variant:ident $data:tt = $variant_str:literal, )*
+            $( $variant:ident { $( $field:ident : $field_ty:ty ),* $(,)? } = $variant_str:literal, )* $(,)?
         }
     ) => {
         $( #[$($meta)*] )?
         $vis enum $name {
-            $( $variant $data , )*
+            $( $variant { $( $field : $field_ty ),* } , )*
         }
         impl $name {
             fn variant_name(&self) -> &'static str {
@@ -33,9 +45,48 @@ macro_rules! message_inner_enum_with_name {
         static MESSAGE_INNER_VARIANT_NAMES: &'static [&'static str] = &[
             $( $variant_str , )*
         ];
+        impl serde::ser::Serialize for $outer {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where S: serde::ser::Serializer
+            {
+                use serde::ser::*;
+                let make_map = || -> Result<HashMap::<&'static str, Box<RawValue>>, serde_json::Error> {
+                    let mut map = HashMap::<&'static str, Box<RawValue>>::with_capacity(8);
+                    map.insert("message_id", to_raw_value(&self.message_id)?);
+                    map.insert("message_type", to_raw_value(self.inner.variant_name())?);
+
+                    use $name::*;
+                    match &self.inner {
+                        $(
+                            $variant { $( $field ),* } => {
+                                $( map.insert(stringify!($field), to_raw_value(&$field)?); )*
+                            }
+                        ),*
+//                        FunctionCall { name, parameters } => {
+//                            map.insert("name", to_raw_value(&name)?);
+//                            map.insert("parameters", to_raw_value(&parameters)?);
+//                        },
+//                        FunctionReturn { reply_to, returns } => {
+//                            map.insert("reply_to", to_raw_value(&reply_to)?);
+//                            map.insert("returns", to_raw_value(&returns)?);
+//                        },
+//                        _ => todo!(),
+                    };
+                    Ok(map)
+                };
+                match make_map() {
+                    Ok(map) => map.serialize(serializer),
+                    Err(e) => {
+                        dbg!(&e);
+                        Err(S::Error::custom(e))
+                    },
+                }
+            }
+}
     };
 }
 message_inner_enum_with_name!{
+outer: Message
 #[derive(Debug)]
 pub enum MessageInner {
     MachineDescription {
@@ -72,32 +123,39 @@ pub enum MessageInner {
         operation: String,
         reason: String
     } = "unsupported_operation",
-    Other(HashMap<String, Box<RawValue>>) = "other",
+    Disconnect {} = "disconnect",
+    Other { data: Box<RawValue> } = "other",
 }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Function {
     parameters: HashMap<String, String>,
     returns: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Sensor {
+    #[serde(rename = "type")]
     r#type: String,
-    min: Box<RawValue>,
-    max: Box<RawValue>,
+    #[serde(default)]
+    min: Option<Box<RawValue>>,
+    #[serde(default)]
+    max: Option<Box<RawValue>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Axis {
+    #[serde(rename = "type")]
     r#type: String,
-    min: Box<RawValue>,
-    max: Box<RawValue>,
+    #[serde(default)]
+    min: Option<Box<RawValue>>,
+    #[serde(default)]
+    max: Option<Box<RawValue>>,
 }
 
 // TODO
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Stream {
     todo: Box<RawValue>,
 }
@@ -107,7 +165,7 @@ lazy_static::lazy_static! {
     static ref KEY: AtomicUsize = AtomicUsize::new(0);
 }
 
-pub fn try_read_message(mut stream: &TcpStream) -> Result<Option<Message>, Box<dyn std::error::Error + 'static>> {
+pub fn try_read_message(mut stream: &TcpStream) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     let poller: &Poller = &*POLLER;
     let key = KEY.fetch_add(1, Ordering::Relaxed);
     poller.add(stream, Event::readable(key))?;
@@ -127,7 +185,7 @@ pub fn try_read_message(mut stream: &TcpStream) -> Result<Option<Message>, Box<d
     }
 }
 
-pub fn try_write_message(mut stream: &TcpStream, msg: &Message) -> Result<(), Box<dyn std::error::Error + 'static>> {
+pub fn try_write_message(mut stream: &TcpStream, msg: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = serde_json::to_vec(msg)?;
     let byte_count_buf = u32::to_be_bytes(msg.len().try_into().or(Err("message too long"))?);
     stream.write_all(&byte_count_buf)?;
@@ -171,65 +229,86 @@ lazy_static::lazy_static! {
             &'static str,
             for<'a> fn(message_id: i64, json: HashMap<&'a str, &'a RawValue>) -> Result<Message, DeserializeError>,
         >::new();
-        map.insert("function_call", |message_id: i64, mut json: HashMap<&str, &RawValue>| {
-            let name = json.remove("name")
-                .ok_or_else(|| DeserializeError::MissingField("name"))?;
-            let name = serde_json::from_str::<String>(name.get())
-                .map_err(|_| DeserializeError::InvalidType(
-                    Unexpected::Other("TODO: unknown"),
-                    &"a string",
-                ))?;
-            let parameters = json.remove("parameters")
-                .ok_or_else(|| DeserializeError::MissingField("parameters"))?;
-            let parameters = serde_json::from_str::<HashMap<String, Box<RawValue>>>(parameters.get())
-                .map_err(|_| DeserializeError::InvalidType(
-                    Unexpected::Other("TODO: unknown"),
-                    &"function parameters",
-                ))?;
-            if let Some((field, _value)) = json.into_iter().next() {
-                Err(DeserializeError::UnknownField(
-                    field.to_owned().into(),
-                    &["message_id", "message_type", "name", "parameters"],
-                ))?;
+        macro_rules! make_inner_deserializer {
+            (
+                $variant:ident $variant_str:literal ( $( $field:ident $field_str:literal $field_desc:literal $field_ty:ty),* $(,)?)
+            ) => {
+                map.insert( $variant_str , |message_id: i64, mut json: HashMap<&str, &RawValue>| {
+                    $(
+                        let $field = json.remove($field_str)
+                            .ok_or_else(|| DeserializeError::MissingField($field_str))?;
+                        let $field = serde_json::from_str::<$field_ty>($field.get())
+                            .map_err(|_| DeserializeError::InvalidType(
+                                Unexpected::Other("TODO: unknown"),
+                                & $field_desc,
+                            ))?;
+                    )*
+//                    let name = json.remove("name")
+//                        .ok_or_else(|| DeserializeError::MissingField("name"))?;
+//                    let name = serde_json::from_str::<String>(name.get())
+//                        .map_err(|_| DeserializeError::InvalidType(
+//                            Unexpected::Other("TODO: unknown"),
+//                            &"a string",
+//                        ))?;
+//                    let parameters = json.remove("parameters")
+//                        .ok_or_else(|| DeserializeError::MissingField("parameters"))?;
+//                    let parameters = serde_json::from_str::<HashMap<String, Box<RawValue>>>(parameters.get())
+//                        .map_err(|_| DeserializeError::InvalidType(
+//                            Unexpected::Other("TODO: unknown"),
+//                            &"function parameters",
+//                        ))?;
+                    if let Some((field, _value)) = json.into_iter().next() {
+                        Err(DeserializeError::UnknownField(
+                            field.to_owned().into(),
+                            &["message_id", "message_type", $( $field_str ),*],
+                        ))?;
+                    }
+                    Ok(Message {
+                        message_id,
+                        inner: MessageInner::$variant { $( $field ),* },
+                    })
+                });
             }
-            Ok(Message {
-                message_id,
-                inner: MessageInner::FunctionCall {
-                    name,
-                    parameters,
-                },
-            })
-        });
-        map.insert("function_return", |message_id: i64, mut json: HashMap<&str, &RawValue>| {
-            let reply_to = json.remove("reply_to")
-                .ok_or_else(|| DeserializeError::MissingField("reply_to"))?;
-            let reply_to = serde_json::from_str::<i64>(reply_to.get())
-                .map_err(|_| DeserializeError::InvalidType(
-                    Unexpected::Other("TODO: unknown"),
-                    &"a string",
-                ))?;
-            let returns = json.remove("returns")
-                .ok_or_else(|| DeserializeError::MissingField("returns"))?;
-            let returns = serde_json::from_str::<HashMap<String, Box<RawValue>>>(returns.get())
-                .map_err(|_| DeserializeError::InvalidType(
-                    Unexpected::Other("TODO: unknown"),
-                    &"function returns",
-                ))?;
-            if let Some((field, _value)) = json.into_iter().next() {
-                Err(DeserializeError::UnknownField(
-                    field.to_owned().into(),
-                    &["message_id", "message_type", "reply_to", "returns"],
-                ))?;
-            }
-            Ok(Message {
-                message_id,
-                inner: MessageInner::FunctionReturn {
-                    reply_to,
-                    returns,
-                },
-            })
-        });
-//        todo!();
+        }
+        make_inner_deserializer!(MachineDescription "machine_description" (
+            name        "name"      "a string"              String,
+            functions   "functions" "function descriptors"  HashMap<String, Function>,
+            sensors     "sensors"   "sensor descriptors"    HashMap<String, Sensor>,
+            axes        "axes"      "axis descriptors"      HashMap<String, Axis>,
+            streams     "streams"   "stream descriptors"    HashMap<String, Stream>,
+        ));
+        make_inner_deserializer!(FunctionCall "function_call" (
+            name        "name"          "a string"              String,
+            parameters  "parameters"    "function parameters"   HashMap<String, Box<RawValue>>,
+        ));
+        make_inner_deserializer!(FunctionReturn "function_return" (
+            reply_to "reply_to" "a positive integer" i64,
+            returns  "returns"  "function returns"   HashMap<String, Box<RawValue>>,
+        ));
+        make_inner_deserializer!(SensorRead "sensor_read" (
+            name        "name"          "a string"              String,
+        ));
+        make_inner_deserializer!(SensorReturn "sensor_return" (
+            reply_to "reply_to" "a positive integer" i64,
+            value    "value"    "sensor value"       Box<RawValue>,
+        ));
+        make_inner_deserializer!(AxisChange "axis_change" (
+            name     "name"     "a string"     String,
+            value    "value"    "axis value"   Box<RawValue>,
+        ));
+        make_inner_deserializer!(AxisReturn "axis_return" (
+            reply_to "reply_to" "a positive integer" i64,
+        ));
+        make_inner_deserializer!(UnsupportedOperation "unsupported_operation" (
+            reply_to    "reply_to"  "a positive integer" i64,
+            operation   "operation" "a string"           String,
+            reason      "reason"    "a string"           String,
+        ));
+        make_inner_deserializer!(Other "other" (
+            data "data" "json data" Box<RawValue>,
+        ));
+        make_inner_deserializer!(Disconnect "disconnect" (
+        ));
         map
     };
 }
@@ -271,42 +350,3 @@ impl<'de> serde::de::Deserialize<'de> for Message {
     }
 }
 
-impl serde::ser::Serialize for Message {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: serde::ser::Serializer
-    {
-        use serde::ser::*;
-        dbg!(line!());
-        let make_map = || -> Result<HashMap::<&'static str, Box<RawValue>>, serde_json::Error> {
-            let mut map = HashMap::<&'static str, Box<RawValue>>::with_capacity(8);
-            map.insert("message_id", to_raw_value(&self.message_id)?);
-            map.insert("message_type", to_raw_value(self.inner.variant_name())?);
-            dbg!(line!());
-
-            use MessageInner::*;
-            dbg!(line!());
-            match &self.inner {
-                FunctionCall { name, parameters } => {
-            dbg!(line!());
-                    map.insert("name", to_raw_value(&name)?);
-                    map.insert("parameters", to_raw_value(&parameters)?);
-                },
-                FunctionReturn { reply_to, returns } => {
-            dbg!(line!());
-                    map.insert("reply_to", to_raw_value(&reply_to)?);
-                    map.insert("returns", to_raw_value(&returns)?);
-                },
-                _ => todo!(),
-            };
-            dbg!(line!());
-            Ok(map)
-        };
-        match make_map() {
-            Ok(map) => map.serialize(serializer),
-            Err(e) => {
-                dbg!(&e);
-                Err(S::Error::custom(e))
-            },
-        }
-    }
-}

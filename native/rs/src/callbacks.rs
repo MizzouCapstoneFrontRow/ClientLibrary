@@ -86,10 +86,10 @@ impl Function {
             parameters: *const *const libc::c_void,
             returns: *const *mut libc::c_void,
         ),
-    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let parameters = parameters
             .into_iter()
-            .map(|(name, r#type)| -> Result<(String, InputMarshaller), Box<dyn std::error::Error + 'static>> {
+            .map(|(name, r#type)| -> Result<(String, InputMarshaller), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 Ok((
                     name,
                     *INPUT_MARSHALLERS.get(
@@ -99,7 +99,7 @@ impl Function {
             }).collect::<Result<_,_>>()?;
         let returns = returns
             .into_iter()
-            .map(|(name, r#type)| -> Result<(String, OutputMarshaller), Box<dyn std::error::Error + 'static>> {
+            .map(|(name, r#type)| -> Result<(String, OutputMarshaller), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 Ok((
                     name,
                     *OUTPUT_MARSHALLERS.get(
@@ -109,7 +109,7 @@ impl Function {
             }).collect::<Result<_,_>>()?;
         Ok(Self { parameters, returns, fn_ptr })
     }
-    pub(crate) fn call(&self, parameters: &HashMap<String, Box<RawValue>>) -> Result<HashMap<String, Box<RawValue>>, Box<dyn std::error::Error + 'static>> {
+    pub(crate) fn call(&self, parameters: &HashMap<String, Box<RawValue>>) -> Result<HashMap<String, Box<RawValue>>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         eprintln!("TODO: check for extraneous parameters");
 
         let parameterbuffer: Vec<Box<dyn InputMarshall>> = 
@@ -149,11 +149,11 @@ impl Axis {
         fn_ptr: unsafe extern "C" fn(
             input: *const libc::c_void,
         ),
-    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let input_marshaller = *INPUT_MARSHALLERS.get(&input_type).ok_or(format!("unsupported input type: {:?}", input_type))?;
         Ok(Self { input_marshaller, fn_ptr })
     }
-    pub(crate) fn call(&self, input: &RawValue) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub(crate) fn call(&self, input: &RawValue) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         let input: Box<dyn InputMarshall> = (self.input_marshaller)(input)?;
         unsafe {
             (self.fn_ptr)(input.data());
@@ -168,11 +168,11 @@ impl Sensor {
         fn_ptr: unsafe extern "C" fn(
             input: *mut libc::c_void,
         ),
-    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let output_marshaller = *OUTPUT_MARSHALLERS.get(&output_type).ok_or(format!("unsupported output type: {:?}", output_type))?;
         Ok(Self { output_marshaller, fn_ptr })
     }
-    pub(crate) fn call(&self) -> Result<Box<RawValue>, Box<dyn std::error::Error + 'static>> {
+    pub(crate) fn call(&self) -> Result<Box<RawValue>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let mut output: Box<dyn OutputMarshall> = (self.output_marshaller)();
         unsafe {
             (self.fn_ptr)(output.data());
