@@ -81,27 +81,22 @@ pub extern "C" fn SetName(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>
 ) -> bool {
-    shadow_or_return!(mut handle, false);
-    shadow_or_return!(name, false);
+    shadow_or_return!(mut handle, false, with_message "Error setting name: Invalid handle (null)");
+    shadow_or_return!(name,       false, with_message "Error setting name: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting name: Cannot set name after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
+        with_message "Error setting name: Invalid name (not UTF-8)",
     );
-    match handle {
-        Unconnected(c) => {
-            c.name = Some(name.to_owned());
-            true
-        },
-        Connected(_) => {
-            false // Cannot change name after conncting
-        },
-    }
+    handle.name = Some(name.to_owned());
+    true
 }
 
 #[no_mangle]
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
-    shadow_or_return!(handle, false);
-    let handle = unwrap_or_return!(handle.as_connected_mut(), false);
+    shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
+    let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
     while let Ok(Some(message)) = message::try_read_message(&handle.connection) {
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
         dbg!(&message);

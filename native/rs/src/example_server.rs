@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::io::Write;
-use std::thread;
+//use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
 use client::message::*;
 
