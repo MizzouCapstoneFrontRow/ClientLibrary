@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "client.h"
+#include "unistd.h"
 
 // Signature: (String name) -> ()
 // so parameters[0] points to a const char *name
@@ -158,9 +159,18 @@ int main() {
     success = RegisterFunction(handle, "count_bools", count_bools_parameters, count_bools_returns, count_bools_callback);
     printf("success: %d\n", (int)success);
 
-    printf("updating\n");
-    success = LibraryUpdate(handle);
+    printf("connecting\n");
+    success = ConnectToServer(handle, "localhost", 8089);
     printf("success: %d\n", (int)success);
+
+    for (int i = 0; i < 10; ++i) {
+        sleep(1);
+
+        printf("updating\n");
+        success = LibraryUpdate(handle);
+        printf("success: %d\n", (int)success);
+
+    }
 
     printf("shutting down\n");
     ShutdownLibrary(handle);

@@ -4,6 +4,7 @@ pub(crate) mod util;
 //pub(crate) mod native_callback;
 pub(crate) mod callbacks;
 pub(crate) mod marshall;
+pub mod message;
 
 use std::{
     ffi::CStr,
@@ -69,7 +70,7 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
     match *handle {
         Unconnected(_) => {}, // nothing to do
         Connected(c) => {
-            todo!("send disconnect message");
+            eprintln!("TODO: send disconnect message");
         },
     };
 }
@@ -99,38 +100,68 @@ pub extern "C" fn SetName(
 #[no_mangle]
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false);
-//    let handle = unwrap_or_return!(handle.as_connected_mut(), false);
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false);
-    eprintln!("TODO: LibraryUpdate");
+    let handle = unwrap_or_return!(handle.as_connected_mut(), false);
+    while let Ok(Some(message)) = message::try_read_message(&handle.connection) {
+        eprintln!("TODO: handle I/O errors in LibraryUpdate");
+        dbg!(&message);
 
-    let result = handle.functions.get("print").unwrap().call(serde_json::from_str(
-        r#"{ "name": "Zachary" }"#
-    ).unwrap()).unwrap();
-    dbg!(serde_json::to_string(&result));
+        use crate::message::Message;
+        use crate::message::MessageInner::*;
+        match message.inner {
+            FunctionCall { name, parameters } => {
+                if let Some(function) = handle.functions.get(&name) {
+                    let result = function.call(&parameters).unwrap(); // TODO: error handle
+                    dbg!(&result);
+                    let reply = Message {
+                        message_id: 2345, // TODO
+                        inner: FunctionReturn {
+                            reply_to: message.message_id,
+                            returns: result,
+                        },
+                    };
+                    dbg!(&reply);
+                    message::try_write_message(&handle.connection, &reply);// TODO: error handle
+                } else {
+                    eprintln!("TODO: reply with unsupported operation");
+//                    Message
+                }
+            },
+            _ => {},
+        }
+        
+    }
 
-
-    let result = handle.functions.get("multiply").unwrap().call(serde_json::from_str(
-        r#"{ "x": 4, "y": 5}"#
-    ).unwrap()).unwrap();
-    dbg!(serde_json::to_string(&result));
-
-
-    let result = handle.functions.get("average").unwrap().call(serde_json::from_str(
-        r#"{ "x": [1, 2, 3, 4, 5, 20]}"#
-    ).unwrap()).unwrap();
-    dbg!(serde_json::to_string(&result));
-
-
-    let result = handle.functions.get("sequence").unwrap().call(serde_json::from_str(
-        r#"{ "n": 20}"#
-    ).unwrap()).unwrap();
-    dbg!(serde_json::to_string(&result));
-
-
-    let result = handle.functions.get("count_bools").unwrap().call(serde_json::from_str(
-        r#"{ "values": [true, true, false, true, false]}"#
-    ).unwrap()).unwrap();
-    dbg!(serde_json::to_string(&result));
+//    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false);
+//    eprintln!("TODO: LibraryUpdate");
+//
+//    let result = handle.functions.get("print").unwrap().call(serde_json::from_str(
+//        r#"{ "name": "Zachary" }"#
+//    ).unwrap()).unwrap();
+//    dbg!(serde_json::to_string(&result));
+//
+//
+//    let result = handle.functions.get("multiply").unwrap().call(serde_json::from_str(
+//        r#"{ "x": 4, "y": 5}"#
+//    ).unwrap()).unwrap();
+//    dbg!(serde_json::to_string(&result));
+//
+//
+//    let result = handle.functions.get("average").unwrap().call(serde_json::from_str(
+//        r#"{ "x": [1, 2, 3, 4, 5, 20]}"#
+//    ).unwrap()).unwrap();
+//    dbg!(serde_json::to_string(&result));
+//
+//
+//    let result = handle.functions.get("sequence").unwrap().call(serde_json::from_str(
+//        r#"{ "n": 20}"#
+//    ).unwrap()).unwrap();
+//    dbg!(serde_json::to_string(&result));
+//
+//
+//    let result = handle.functions.get("count_bools").unwrap().call(serde_json::from_str(
+//        r#"{ "values": [true, true, false, true, false]}"#
+//    ).unwrap()).unwrap();
+//    dbg!(serde_json::to_string(&result));
 
 
     true
@@ -308,3 +339,45 @@ pub extern "C" fn RegisterAxis(
     true
 }
 
+#[no_mangle]
+pub extern "C" fn ConnectToServer(
+    handle: Option<&mut ClientHandle>,
+    server: Option<NonNull<c_char>>,
+    port: u16,
+) -> bool {
+    shadow_or_return!(handle, false, with_message "Error connecting to server: Invalid handle (null)");
+    shadow_or_return!(server, false, with_message "Error connecting to server: Invalid server (null)");
+    let handle_ = handle;
+    let handle = unwrap_or_return!(
+        handle_.as_unconnected_mut(),
+        false,
+        with_message "Error connecting to server: already connected",
+    );
+    if handle.name.is_none() {
+        eprintln!("Error connecting to server: no name set");
+        return false;
+    }
+    let server: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(server.as_ptr()) }.to_str(),
+        false,
+        with_message "Error connecting to server: server address not valid UTF-8",
+    );
+    let connection = unwrap_or_return!(
+        std::net::TcpStream::connect((server, port)),
+        false,
+        with_message(e) "Error connecting to server: {:?}", e
+    );
+    eprintln!("TODO: send machine description to server");
+
+    let UnconnectedClient {
+        name, sensors, axes, functions, streams
+    } = std::mem::take(handle);
+
+    *handle_ = ClientHandle::Connected(ConnectedClient {
+        name: name.unwrap(),
+        sensors, axes, functions, streams,
+        connection,
+    });
+
+    true
+}

@@ -6,6 +6,7 @@ extern "C" {
 #endif // def __cplusplus
 
 #include <stdbool.h>
+#include <stdint.h>
 
 struct ClientHandle_t;
 typedef struct ClientHandle_t *ClientHandle;
@@ -93,6 +94,18 @@ bool RegisterAxis(
     const char *name,
     const char *input_type,
     void (*callback)(const void *const)
+);
+
+/**
+* Connects to a server
+* @param server     String that is the domain name or IP address (v4 or v6) of the server.
+* @param port       uint16_t that is the port to connect to on the server.
+* @returns bool success (Did the client connect successfully)
+*/
+bool ConnectToServer(
+    ClientHandle handle,
+    const char *server,
+    uint16_t port
 );
 
 /**

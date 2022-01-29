@@ -109,7 +109,7 @@ impl Function {
             }).collect::<Result<_,_>>()?;
         Ok(Self { parameters, returns, fn_ptr })
     }
-    pub(crate) fn call(&self, parameters: HashMap<String, &RawValue>) -> Result<HashMap<String, Box<RawValue>>, Box<dyn std::error::Error + 'static>> {
+    pub(crate) fn call(&self, parameters: &HashMap<String, Box<RawValue>>) -> Result<HashMap<String, Box<RawValue>>, Box<dyn std::error::Error + 'static>> {
         eprintln!("TODO: check for extraneous parameters");
 
         let parameterbuffer: Vec<Box<dyn InputMarshall>> = 
