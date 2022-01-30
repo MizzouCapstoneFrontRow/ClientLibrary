@@ -130,34 +130,34 @@ pub enum MessageInner {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Function {
-    parameters: HashMap<String, String>,
-    returns: HashMap<String, String>,
+    pub(crate) parameters: HashMap<String, String>,
+    pub(crate) returns: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Sensor {
     #[serde(rename = "type")]
-    r#type: String,
+    pub(crate) output_type: String,
     #[serde(default)]
-    min: Option<Box<RawValue>>,
+    pub(crate) min: Option<Box<RawValue>>,
     #[serde(default)]
-    max: Option<Box<RawValue>>,
+    pub(crate) max: Option<Box<RawValue>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Axis {
     #[serde(rename = "type")]
-    r#type: String,
+    pub(crate) input_type: String,
     #[serde(default)]
-    min: Option<Box<RawValue>>,
+    pub(crate) min: Option<Box<RawValue>>,
     #[serde(default)]
-    max: Option<Box<RawValue>>,
+    pub(crate) max: Option<Box<RawValue>>,
 }
 
 // TODO
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Stream {
-    todo: Box<RawValue>,
+    pub(crate) todo: Box<RawValue>,
 }
 
 lazy_static::lazy_static! {
@@ -193,6 +193,7 @@ pub fn try_write_message(mut stream: &TcpStream, msg: &Message) -> Result<(), Bo
     Ok(())
 }
 
+#[allow(dead_code)]
 enum DeserializeError {
     InvalidType(serde::de::Unexpected<'static>, &'static dyn serde::de::Expected),
     InvalidValue(serde::de::Unexpected<'static>, &'static dyn serde::de::Expected),

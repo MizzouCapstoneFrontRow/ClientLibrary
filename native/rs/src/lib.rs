@@ -362,7 +362,6 @@ pub extern "C" fn ConnectToServer(
         false,
         with_message(e) "Error connecting to server: {:?}", e
     );
-    eprintln!("TODO: send machine description to server");
 
     let UnconnectedClient {
         name, sensors, axes, functions, streams
@@ -373,6 +372,46 @@ pub extern "C" fn ConnectToServer(
         sensors, axes, functions, streams,
         connection,
     });
+    let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
+
+    let machine_description = Message::new(
+        MessageInner::MachineDescription {
+            name: handle.name.clone().into(),
+
+            functions: handle.functions.iter().map(|(name, f)| {
+                let parameters = f.parameters.iter().map(|(n, (t, _))| {
+                    (n.clone(), t.to_str().to_owned())
+                }).collect();
+                let returns = f.returns.iter().map(|(n, (t, _))| {
+                    (n.clone(), t.to_str().to_owned())
+                }).collect();
+                (name.clone(), message::Function { parameters, returns })
+            }).collect(),
+
+            sensors: handle.sensors.iter().map(|(name, s)| {
+                eprintln!("TODO: sensor min/max");
+                let output_type = s.output_type.to_str().to_owned();
+                (name.clone(), message::Sensor { output_type, min: None, max: None })
+            }).collect(),
+
+            axes: handle.axes.iter().map(|(name, a)| {
+                eprintln!("TODO: axis min/max");
+                let input_type = a.input_type.to_str().to_owned();
+                (name.clone(), message::Axis { input_type, min: None, max: None })
+            }).collect(),
+
+            streams: handle.streams.iter().map(|(name, s)| {
+                eprintln!("TODO: streams in machine description");
+                (name.clone(), message::Stream { todo: Default::default() })
+            }).collect(),
+        }
+    );
+
+    unwrap_or_return!(
+        try_write_message(&handle.connection, &machine_description),
+        false,
+        with_message(e) "Error connecting to server: Failed to send machine description {:?}", e
+    );
 
     true
 }

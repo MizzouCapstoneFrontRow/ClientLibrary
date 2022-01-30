@@ -13,6 +13,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         println!("New connection from {:?}", addr);
 
 //        threads.push(thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+            let machine_description = loop {
+                if let Some(machine_description) = try_read_message(&stream).transpose() {
+                    break machine_description;
+                }
+            };
+            dbg!(&machine_description);
+
+
             let msg = Message::new(
                 MessageInner::FunctionCall {
                     name: "count_bools".to_owned(),
