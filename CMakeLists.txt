@@ -10,15 +10,13 @@ message(    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so"
 )
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so" FAKE_FILE # FAKE_FILE to make this target always be out-of-date
-    COMMAND "${CMAKE_COMMAND}" -E env ${CARGO_ENV} "CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}/rs" "JAVA_JVM_LIBRARY=${JAVA_JVM_LIBRARY}" cargo build
+    COMMAND "${CMAKE_COMMAND}" -E env ${CARGO_ENV} "CARGO_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}/rs" cargo build
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rs/"
     DEPENDS "${GENERATED_CLASSES}"
     COMMENT "libclient.so (Rust)"
     BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/rs/"
 )
 add_custom_target(_client DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so")
-
-message("Jvm lib location ${JAVA_JVM_LIBRARY}")
 
 add_library(client SHARED IMPORTED)
 add_dependencies(client _client)
