@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::BufReader};
 use std::net::TcpListener;
 //use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
@@ -12,9 +12,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         let (mut stream, addr) = srv.accept()?;
         println!("New connection from {:?}", addr);
 
+        let mut read_stream = BufReader::new(stream.try_clone()?);
+        let write_stream = stream;
+
 //        threads.push(thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let machine_description = loop {
-                if let Some(machine_description) = try_read_message(&stream).transpose() {
+                if let Some(machine_description) = try_read_message(&mut read_stream).transpose() {
                     break machine_description;
                 }
             };
@@ -30,9 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 },
             );
             dbg!(&msg);
-            try_write_message(&stream, &msg)?;
+            try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
                     break reply;
                 }
             };
@@ -47,9 +50,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 },
             );
             dbg!(&msg);
-            try_write_message(&stream, &msg)?;
+            try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
                     break reply;
                 }
             };
@@ -57,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
 
             let reply = loop {
-                if let Some(reply) = try_read_message(&stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
                     break reply;
                 }
             };

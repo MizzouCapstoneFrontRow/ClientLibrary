@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
 use std::net::TcpStream;
-use std::io::{Read, Write};
+use std::io::{Read, Write, BufRead, BufReader};
 use serde_json::value::{RawValue, to_raw_value};
-use polling::{Poller, Event};
+use polling::{Poller, Event, Source};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug)]
@@ -165,31 +165,27 @@ lazy_static::lazy_static! {
     static ref KEY: AtomicUsize = AtomicUsize::new(0);
 }
 
-pub fn try_read_message(mut stream: &TcpStream) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn try_read_message(stream: &mut BufReader<TcpStream>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     let poller: &Poller = &*POLLER;
     let key = KEY.fetch_add(1, Ordering::Relaxed);
-    poller.add(stream, Event::readable(key))?;
+    poller.add(stream.get_ref(), Event::readable(key))?;
     let mut events = Vec::with_capacity(1);
     poller.wait(&mut events, Some(std::time::Duration::from_secs(0)))?;
-    poller.delete(stream)?;
+    poller.delete(stream.get_ref())?;
     if events.len() > 0 {
-        let mut byte_count_buf = [0u8; 4];
-        stream.read_exact(&mut byte_count_buf[..])?;
-        let byte_count = u32::from_be_bytes(byte_count_buf);
-        let mut msg_buf = vec![0u8; byte_count as usize];
-        stream.read_exact(&mut msg_buf[..])?;
-        let msg_buf = std::str::from_utf8(&msg_buf)?;
-        Ok(Some(serde_json::from_str::<Message>(msg_buf)?))
+        let mut msg_buf = String::with_capacity(4096);
+        stream.read_line(&mut msg_buf)?;
+        Ok(Some(serde_json::from_str::<Message>(&msg_buf)?))
     } else {
         Ok(None)
     }
 }
 
-pub fn try_write_message(mut stream: &TcpStream, msg: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let msg = serde_json::to_vec(msg)?;
-    let byte_count_buf = u32::to_be_bytes(msg.len().try_into().or(Err("message too long"))?);
-    stream.write_all(&byte_count_buf)?;
-    stream.write_all(&msg)?;
+pub fn try_write_message(mut stream: impl Write, msg: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let mut data = Vec::with_capacity(4096);
+    serde_json::to_writer(&mut data, msg)?;
+    data.push(b'\n');
+    stream.write_all(&data)?;
     Ok(())
 }
 

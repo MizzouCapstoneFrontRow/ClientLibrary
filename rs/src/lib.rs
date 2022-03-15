@@ -10,7 +10,7 @@ use std::{
     ffi::CStr,
     ptr::NonNull,
     sync::Arc,
-    collections::HashMap,
+    collections::HashMap, io::BufReader,
 };
 use libc::{c_char, c_void};
 use indexmap::map::IndexMap; 
@@ -35,7 +35,8 @@ pub struct ConnectedClient {
     sensors: HashMap<String, Sensor>,
     axes: HashMap<String, Axis>,
     functions: HashMap<String, Function>,
-    connection: std::net::TcpStream,
+    read_connection: BufReader<std::net::TcpStream>,
+    write_connection: std::net::TcpStream,
 }
 
 pub enum ClientHandle {
@@ -71,7 +72,7 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
     match *handle {
         Unconnected(_) => {}, // nothing to do
         Connected(handle) => {
-            try_write_message(&handle.connection, &Message::new(MessageInner::Disconnect {})); // TODO: error handle
+            try_write_message(&handle.write_connection, &Message::new(MessageInner::Disconnect {})); // TODO: error handle
         },
     };
 }
@@ -97,7 +98,7 @@ pub extern "C" fn SetName(
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Ok(Some(message)) = message::try_read_message(&handle.connection) {
+    while let Ok(Some(message)) = message::try_read_message(&mut handle.read_connection) {
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
         dbg!(&message);
 
@@ -115,7 +116,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                         },
                     );
                     dbg!(&reply);
-                    message::try_write_message(&handle.connection, &reply);// TODO: error handle
+                    message::try_write_message(&handle.write_connection, &reply);// TODO: error handle
                 } else {
                     eprintln!("TODO: reply with unsupported operation");
 //                    Message
@@ -363,6 +364,9 @@ pub extern "C" fn ConnectToServer(
         with_message(e) "Error connecting to server: {:?}", e
     );
 
+    let read_connection = BufReader::new(connection.try_clone().unwrap());
+    let write_connection = connection;
+
     let UnconnectedClient {
         name, sensors, axes, functions, streams
     } = std::mem::take(handle);
@@ -370,7 +374,8 @@ pub extern "C" fn ConnectToServer(
     *handle_ = ClientHandle::Connected(ConnectedClient {
         name: name.unwrap(),
         sensors, axes, functions, streams,
-        connection,
+        write_connection,
+        read_connection,
     });
     let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
 
@@ -408,7 +413,7 @@ pub extern "C" fn ConnectToServer(
     );
 
     unwrap_or_return!(
-        try_write_message(&handle.connection, &machine_description),
+        try_write_message(&handle.write_connection, &machine_description),
         false,
         with_message(e) "Error connecting to server: Failed to send machine description {:?}", e
     );
