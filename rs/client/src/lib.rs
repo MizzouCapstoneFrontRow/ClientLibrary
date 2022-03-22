@@ -114,7 +114,37 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                     dbg!(result);
                 } else {
                     eprintln!("TODO: reply with unsupported operation");
-//                    Message
+                }
+            },
+            AxisChange { name, value } => {
+                if let Some(axis) = handle.axes.get(&name) {
+                    let result = axis.call(&value).unwrap(); // TODO: error handle instead of unwrap
+                    dbg!(&result);
+                    let reply = Message::new(
+                        AxisReturn {
+                            reply_to: message.message_id,
+                        },
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                } else {
+                    eprintln!("TODO: reply with unsupported operation");
+                }
+            },
+            SensorRead { name } => {
+                if let Some(axis) = handle.sensors.get(&name) {
+                    let result = axis.call().unwrap(); // TODO: error handle instead of unwrap
+                    dbg!(&result);
+                    let reply = Message::new(
+                        SensorReturn {
+                            reply_to: message.message_id,
+                            value: result,
+                        },
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                } else {
+                    eprintln!("TODO: reply with unsupported operation");
                 }
             },
             _ => {todo!()},
