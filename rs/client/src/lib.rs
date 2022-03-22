@@ -1,22 +1,18 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-#[macro_use]
-pub(crate) mod util;
 //pub(crate) mod native_callback;
 pub(crate) mod callbacks;
 pub(crate) mod marshall;
-pub mod message;
 
 use std::{
     ffi::CStr,
     ptr::NonNull,
-    sync::Arc,
     collections::HashMap, io::BufReader,
 };
 use libc::{c_char, c_void};
 use indexmap::map::IndexMap; 
-use util::*;
 use callbacks::*;
-use message::{Message, MessageInner, try_read_message, try_write_message};
+use common::message::{self, Message, MessageInner, try_read_message, try_write_message};
+use common::util::*;
 
 pub type Stream = ();
 
@@ -98,16 +94,15 @@ pub extern "C" fn SetName(
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Ok(Some(message)) = message::try_read_message(&mut handle.read_connection) {
+    while let Ok(Some(message)) = try_read_message(&mut handle.read_connection) {
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
         dbg!(&message);
 
-        use crate::message::Message;
-        use crate::message::MessageInner::*;
+        use message::MessageInner::*;
         match message.inner {
             FunctionCall { name, parameters } => {
                 if let Some(function) = handle.functions.get(&name) {
-                    let result = function.call(&parameters).unwrap(); // TODO: error handle
+                    let result = function.call(&parameters).unwrap(); // TODO: error handle instead of unwrap
                     dbg!(&result);
                     let reply = Message::new(
                         FunctionReturn {
@@ -115,8 +110,8 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                             returns: result,
                         },
                     );
-                    dbg!(&reply);
-                    message::try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 } else {
                     eprintln!("TODO: reply with unsupported operation");
 //                    Message
@@ -405,7 +400,7 @@ pub extern "C" fn ConnectToServer(
                 (name.clone(), message::Axis { input_type, min: None, max: None })
             }).collect(),
 
-            streams: handle.streams.iter().map(|(name, s)| {
+            streams: handle.streams.iter().map(|(name, _s)| {
                 eprintln!("TODO: streams in machine description");
                 (name.clone(), message::Stream { todo: Default::default() })
             }).collect(),

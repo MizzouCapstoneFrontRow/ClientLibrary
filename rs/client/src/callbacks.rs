@@ -90,6 +90,7 @@ pub(crate) struct Function {
     ),
 }
 
+#[allow(unused)] // TODO: once axes are implemented, remove this allow
 pub(crate) struct Axis {
     pub(crate) input_type: Type,
     pub(crate) input_marshaller: InputMarshaller,
@@ -98,6 +99,7 @@ pub(crate) struct Axis {
     ),
 }
 
+#[allow(unused)] // TODO: once sensors are implemented, remove this allow
 pub(crate) struct Sensor {
     pub(crate) output_type: Type,
     pub(crate) output_marshaller: OutputMarshaller,

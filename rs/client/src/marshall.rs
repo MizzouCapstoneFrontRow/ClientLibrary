@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::collections::HashMap;
 use libc::{c_void, c_char};
 use serde_json::value::RawValue;
-use crate::util::*;
+use common::util::*;
 
 
 pub(crate) trait InputMarshall {
@@ -72,6 +72,8 @@ impl_primitive_marshall!(f64, 0.0);
 
 struct InputStringMarshall {
     ptr: *const c_char, // points into data
+    #[allow(unused)]
+    /// Owns the buffer that ptr points to
     data: CString,
 }
     
@@ -95,6 +97,8 @@ struct InputArrayMarshallInner {
 
 struct InputArrayMarshall<T> {
     inner: InputArrayMarshallInner,
+    #[allow(unused)]
+    // Owns the buffer that inner.data points to
     data: Vec<T>,
 }
 
@@ -118,7 +122,11 @@ struct InputStringArrayMarshallInner {
 
 struct InputStringArrayMarshall {
     inner: InputStringArrayMarshallInner,
+    #[allow(unused)]
+    /// This owns the buffer that inner points to
     ptrs: Vec<*const c_char>,
+    #[allow(unused)]
+    /// This owns the buffers that ptrs[..] point to
     data: Vec<CString>,
 }
 

@@ -2,14 +2,14 @@ use std::{collections::HashMap, io::BufReader};
 use std::net::TcpListener;
 //use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
-use client::message::*;
+use common::message::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let mut srv = TcpListener::bind("localhost:8089")?;
+    let srv = TcpListener::bind("localhost:8089")?;
 //    let mut threads = vec![];
 
 //    loop {
-        let (mut stream, addr) = srv.accept()?;
+        let (stream, addr) = srv.accept()?;
         println!("New connection from {:?}", addr);
 
         let mut read_stream = BufReader::new(stream.try_clone()?);
