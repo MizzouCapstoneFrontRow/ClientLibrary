@@ -43,7 +43,7 @@ const char *multiply_returns[][2] = {
 };
 
 // Signature: (double[] x) -> (double average)
-// so parameters[0] points to a struct ArrayInputParameter_t {const int length; const void *data;}, and data points to a double[length]
+// so parameters[0] points to a struct ArrayInputParameter_t {const int length; const void *data;}, and data points to a const double[length]
 // so parameters[2] is NULL
 // so returns[0] points to an int product
 // so returns[1] is NULL
@@ -81,9 +81,9 @@ void sequence_callback(const void *const*const parameters, void *const*const ret
 
     int *sequence = malloc(n * sizeof(int));
     seq->data = sequence;
+    seq->release = sequence_free;
     if (sequence) {
         seq->length = n;
-        seq->release = sequence_free;
         for (int i = 0; i < n; ++i) {
             sequence[i] = i;
         }
@@ -99,7 +99,7 @@ const char *sequence_returns[][2] = {
 };
 
 // Signature: (bool[] values) -> (int trues, int falses)
-// so parameters[0] points to a struct ArrayOutputParameter_t {const int length; void *data;}
+// so parameters[0] points to a struct ArrayInputParameter_t {const int length; const void *data;}, and data points to const bool[length]
 // so parameters[1] is NULL
 // so returns[0] points to an int
 // so returns[1] points to an int
