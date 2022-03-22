@@ -113,7 +113,15 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                     let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
                     dbg!(result);
                 } else {
-                    eprintln!("TODO: reply with unsupported operation");
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized function".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 }
             },
             AxisChange { name, value } => {
@@ -128,7 +136,15 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                     let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
                     dbg!(result);
                 } else {
-                    eprintln!("TODO: reply with unsupported operation");
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized axis".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 }
             },
             SensorRead { name } => {
@@ -144,7 +160,15 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                     let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
                     dbg!(result);
                 } else {
-                    eprintln!("TODO: reply with unsupported operation");
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized sensor".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 }
             },
             _ => {todo!()},
