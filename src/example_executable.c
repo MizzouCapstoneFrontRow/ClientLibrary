@@ -129,6 +129,24 @@ const char *count_bools_returns[][2] = {
     {NULL, NULL},
 };
 
+// Sensor (int count)
+// so value points to an int
+void count_sensor(void *const value) {
+    static int count = 0;
+    ++count;
+    *(int*)value = count;
+}
+const char *count_sensor_output_type = "int";
+
+// Axis (double count)
+// so value points to a const double
+void example_axis(const void *const value) {
+    double val = *(const double*)value;
+    printf("Axis got %lf.\n", val);
+}
+const char *example_axis_input_type = "double";
+
+
 int main() {
     ClientHandle handle = InitializeLibrary("./ClientLibrary.jar");
     printf("handle: %p\n", handle);
@@ -157,6 +175,14 @@ int main() {
 
     printf("registering \"count_bools\" function\n");
     success = RegisterFunction(handle, "count_bools", count_bools_parameters, count_bools_returns, count_bools_callback);
+    printf("success: %d\n", (int)success);
+
+    printf("registering \"count\" sensor\n");
+    success = RegisterSensor(handle, "count", count_sensor_output_type, count_sensor);
+    printf("success: %d\n", (int)success);
+
+    printf("registering \"example\" axis\n");
+    success = RegisterAxis(handle, "example", example_axis_input_type, example_axis);
     printf("success: %d\n", (int)success);
 
     printf("connecting\n");

@@ -58,6 +58,57 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             };
             dbg!(&reply);
 
+            let msg = Message::new(
+                MessageInner::SensorRead {
+                    name: "count".to_owned(),
+                },
+            );
+            dbg!(&msg);
+            try_write_message(&write_stream, &msg)?;
+            let reply = loop {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                    break reply;
+                }
+            };
+            dbg!(&reply);
+            try_write_message(&write_stream, &msg)?;
+            let reply = loop {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                    break reply;
+                }
+            };
+            dbg!(&reply);
+
+            let msg = Message::new(
+                MessageInner::AxisChange {
+                    name: "example".to_owned(),
+                    value: to_raw_value(&6.0)?,
+                },
+            );
+            dbg!(&msg);
+            try_write_message(&write_stream, &msg)?;
+            let reply = loop {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                    break reply;
+                }
+            };
+            dbg!(&reply);
+
+            let msg = Message::new(
+                MessageInner::AxisChange {
+                    name: "example".to_owned(),
+                    value: to_raw_value(&42.0)?,
+                },
+            );
+            dbg!(&msg);
+            try_write_message(&write_stream, &msg)?;
+            let reply = loop {
+                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                    break reply;
+                }
+            };
+            dbg!(&reply);
+
 
             let reply = loop {
                 if let Some(reply) = try_read_message(&mut read_stream).transpose() {
