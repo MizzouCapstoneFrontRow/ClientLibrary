@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::BufReader};
-use std::net::TcpListener;
+use std::net::{TcpListener, ToSocketAddrs};
 //use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
 use common::message::*;
@@ -22,6 +22,19 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 }
             };
             dbg!(&machine_description);
+            let (name, functions, sensors, axes, streams) = match machine_description.unwrap() {
+                Message{inner: MessageInner::MachineDescription { name, functions, sensors, axes, streams }, ..} => {
+                    (name, functions, sensors, axes, streams)
+                },
+                _ => panic!("no stream"),
+            };
+            {
+                let (_, stream) = streams.iter().next().unwrap();
+                let addr = format!("http://{}:{}", stream.address, stream.port);
+                std::process::Command::new("firefox")
+                    .args([addr])
+                    .spawn().unwrap();
+            }
 
 
             let msg = Message::new(

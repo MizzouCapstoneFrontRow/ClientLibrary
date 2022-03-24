@@ -185,6 +185,10 @@ int main() {
     success = RegisterAxis(handle, "example", example_axis_input_type, example_axis);
     printf("success: %d\n", (int)success);
 
+    printf("registering \"webcam\" stream\n");
+    success = RegisterStream(handle, "webcam", "mjpeg", "192.168.1.11", 8554);
+    printf("success: %d\n", (int)success);
+
     printf("connecting\n");
     success = ConnectToServer(handle, "localhost", 8089);
     printf("success: %d\n", (int)success);

@@ -97,6 +97,24 @@ bool RegisterAxis(
 );
 
 /**
+* Registers a stream.
+* @param handle     The client handle
+* @param name       The name of the stream
+* @param format     The format of the stream (only mjpeg is currently supported)
+* @param address    The IPv4 address of the stream
+* @param port       The TCP port
+* @returns bool success (Was the axis registered successfully)
+* Type descriptor: A type descriptor is const char*, the type of the parameter.
+*/
+bool RegisterStream(
+    ClientHandle handle,
+    const char *name,
+    const char *format,
+    const char *address,
+    unsigned short port
+);
+
+/**
 * Connects to a server
 * @param server     String that is the domain name or IP address (v4 or v6) of the server.
 * @param port       uint16_t that is the port to connect to on the server.

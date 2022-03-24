@@ -166,7 +166,9 @@ pub struct Axis {
 // TODO
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Stream {
-    pub todo: Box<RawValue>,
+    pub format: String,
+    pub address: String,
+    pub port: u16,
 }
 
 #[allow(dead_code)]

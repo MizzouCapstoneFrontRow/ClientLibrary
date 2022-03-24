@@ -14,8 +14,6 @@ use callbacks::*;
 use common::message::{self, Message, MessageInner, try_read_message, try_write_message};
 use common::util::*;
 
-pub type Stream = ();
-
 #[derive(Default)]
 pub struct UnconnectedClient {
     name: Option<String>,
@@ -341,6 +339,51 @@ pub extern "C" fn RegisterSensor(
 
 
 #[no_mangle]
+pub extern "C" fn RegisterStream(
+    handle: Option<&mut ClientHandle>,
+    name: Option<NonNull<c_char>>,
+    format: Option<NonNull<c_char>>,
+    address: Option<NonNull<c_char>>,
+    port: u16,
+) -> bool {
+    shadow_or_return!(handle,       false, with_message "Error registering stream: Invalid handle (null)");
+    shadow_or_return!(name,         false, with_message "Error registering stream: Invalid name (null)");
+    shadow_or_return!(format,       false, with_message "Error registering stream: Invalid format (null)");
+    shadow_or_return!(address,      false, with_message "Error registering stream: Invalid address (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
+    let name: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid name (not UTF-8)",
+    );
+    let format: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(format.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid format (not UTF-8)",
+    );
+    let address: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(address.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid address (not UTF-8)",
+    );
+
+    if handle.streams.contains_key(name) {
+        eprintln!("Attempted to register stream {:?}, but a stream with that name was already registered.", name);
+        return false;
+    }
+
+    let stream = unwrap_or_return!(
+        Stream::new(format, address, port),
+        false,
+        with_message(e) "Error registering stream: {:?}", e
+    );
+
+    handle.streams.insert(name.to_owned(), stream);
+    true
+}
+
+
+#[no_mangle]
 pub extern "C" fn RegisterAxis(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
@@ -455,8 +498,10 @@ pub extern "C" fn ConnectToServer(
             }).collect(),
 
             streams: handle.streams.iter().map(|(name, _s)| {
-                eprintln!("TODO: streams in machine description");
-                (name.clone(), message::Stream { todo: Default::default() })
+                let Stream { format, address, port } = _s;
+                let format = format.clone();
+                let address = address.clone();
+                (name.clone(), message::Stream { format, address, port: *port })
             }).collect(),
         }
     );

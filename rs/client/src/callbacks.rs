@@ -99,13 +99,18 @@ pub(crate) struct Axis {
     ),
 }
 
-#[allow(unused)] // TODO: once sensors are implemented, remove this allow
 pub(crate) struct Sensor {
     pub(crate) output_type: Type,
     pub(crate) output_marshaller: OutputMarshaller,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         output: *mut libc::c_void,
     ),
+}
+
+pub(crate) struct Stream {
+    pub(crate) format: String,
+    pub(crate) address: String,
+    pub(crate) port: u16,
 }
 
 impl Function {
@@ -214,5 +219,19 @@ impl Sensor {
             (self.fn_ptr)(output.data());
         }
         Ok(output.to_json()?)
+    }
+}
+
+impl Stream {
+    pub(crate) fn new(
+        format: &str,
+        address: &str,
+        port: u16,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        Ok(Self {
+            format: format.to_owned(),
+            address: address.to_owned(),
+            port,
+        })
     }
 }
