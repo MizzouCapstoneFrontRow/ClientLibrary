@@ -80,7 +80,7 @@ macro_rules! message_inner_enum_with_name {
                     },
                 }
             }
-}
+        }
     };
 }
 message_inner_enum_with_name!{
@@ -118,7 +118,7 @@ pub enum MessageInner {
     /// Message from the server representing a request to change an axis.
     AxisChange {
         name: String,
-        value: Box<RawValue>,
+        value: f64,
     } = "axis_change",
     /// Message to the server representing a reply to an axis change.
     AxisReturn {
@@ -148,9 +148,9 @@ pub struct Sensor {
     #[serde(rename = "type")]
     pub output_type: String,
     #[serde(default)]
-    pub min: Option<Box<RawValue>>,
+    pub min: f64,
     #[serde(default)]
-    pub max: Option<Box<RawValue>>,
+    pub max: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,9 +158,9 @@ pub struct Axis {
     #[serde(rename = "type")]
     pub input_type: String,
     #[serde(default)]
-    pub min: Option<Box<RawValue>>,
+    pub min: f64,
     #[serde(default)]
-    pub max: Option<Box<RawValue>>,
+    pub max: f64,
 }
 
 // TODO
@@ -277,7 +277,7 @@ lazy_static::lazy_static! {
         ));
         make_inner_deserializer!(AxisChange "axis_change" (
             name     "name"     "a string"     String,
-            value    "value"    "axis value"   Box<RawValue>,
+            value    "value"    "axis value"   f64,
         ));
         make_inner_deserializer!(AxisReturn "axis_return" (
             reply_to "reply_to" "a positive integer" i64,

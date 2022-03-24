@@ -124,7 +124,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
             },
             AxisChange { name, value } => {
                 if let Some(axis) = handle.axes.get(&name) {
-                    let result = axis.call(&value).unwrap(); // TODO: error handle instead of unwrap
+                    let result = axis.call(value).unwrap(); // TODO: error handle instead of unwrap
                     dbg!(&result);
                     let reply = Message::new(
                         AxisReturn {
@@ -297,23 +297,18 @@ pub extern "C" fn RegisterFunction(
 pub extern "C" fn RegisterSensor(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
-    output_type: Option<NonNull<c_char>>,
-    callback: Option<extern "C" fn (*mut c_void)>,
+    min: f64,
+    max: f64,
+    callback: Option<extern "C" fn (*mut f64)>,
 ) -> bool {
     shadow_or_return!(handle,       false, with_message "Error registering sensor: Invalid handle (null)");
     shadow_or_return!(callback,     false, with_message "Error registering sensor: Invalid callback (null)");
     shadow_or_return!(name,         false, with_message "Error registering sensor: Invalid name (null)");
-    shadow_or_return!(output_type,  false, with_message "Error registering sensor: Invalid output type (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
         with_message "Error registering sensor: Invalid name (not UTF-8)",
-    );
-    let output_type: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(output_type.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering sensor: Invalid output type (not UTF-8)",
     );
 
     if handle.sensors.contains_key(name) {
@@ -321,14 +316,10 @@ pub extern "C" fn RegisterSensor(
         return false;
     }
 
-    let output_type = unwrap_or_return!(
-        Type::from_str(output_type),
-        false,
-        with_message "Error registering axis: Unrecognized type when parsing sensor output type",
-    );
+    let output_type = Type::Prim(PrimType::Double);
 
     let sensor = unwrap_or_return!(
-        Sensor::new(output_type, callback),
+        Sensor::new(min, max, callback),
         false,
         with_message(e) "Error registering sensor: {:?}", e
     );
@@ -387,23 +378,18 @@ pub extern "C" fn RegisterStream(
 pub extern "C" fn RegisterAxis(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
-    input_type: Option<NonNull<c_char>>,
-    callback: Option<extern "C" fn (*const c_void)>,
+    min: f64,
+    max: f64,
+    callback: Option<extern "C" fn (f64)>,
 ) -> bool {
     shadow_or_return!(handle,     false, with_message "Error registering axis: Invalid handle (null)");
     shadow_or_return!(callback,   false, with_message "Error registering axis: Invalid callback (null)");
     shadow_or_return!(name,       false, with_message "Error registering axis: Invalid name (null)");
-    shadow_or_return!(input_type, false, with_message "Error registering axis: Invalid input type (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering axis: Cannot register axes after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
         with_message "Error registering axis: Invalid name (not UTF-8)",
-    );
-    let input_type: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(input_type.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering axis: Invalid output type (not UTF-8)",
     );
 
     if handle.axes.contains_key(name) {
@@ -411,14 +397,10 @@ pub extern "C" fn RegisterAxis(
         return false;
     }
 
-    let input_type = unwrap_or_return!(
-        Type::from_str(input_type),
-        false,
-        with_message "Error registering axis: Unrecognized type when parsing axis input type",
-    );
+    let input_type = Type::Prim(PrimType::Double);
 
     let axis = unwrap_or_return!(
-        Axis::new(input_type, callback),
+        Axis::new(min, max, callback),
         false,
         with_message(e) "Error registering axis: {:?}", e
     );
@@ -488,13 +470,13 @@ pub extern "C" fn ConnectToServer(
             sensors: handle.sensors.iter().map(|(name, s)| {
                 eprintln!("TODO: sensor min/max");
                 let output_type = s.output_type.to_str().to_owned();
-                (name.clone(), message::Sensor { output_type, min: None, max: None })
+                (name.clone(), message::Sensor { output_type, min: s.min, max: s.max })
             }).collect(),
 
             axes: handle.axes.iter().map(|(name, a)| {
                 eprintln!("TODO: axis min/max");
                 let input_type = a.input_type.to_str().to_owned();
-                (name.clone(), message::Axis { input_type, min: None, max: None })
+                (name.clone(), message::Axis { input_type, min: a.min, max: a.max })
             }).collect(),
 
             streams: handle.streams.iter().map(|(name, _s)| {

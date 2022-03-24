@@ -13,10 +13,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 [("test".into(), Function{ parameters: [].into(), returns: [].into() })]
             ),
             sensors: HashMap::from(
-                [("test".into(), Sensor{ output_type: "float".into(), min: None, max: Some(to_raw_value::<f64>(&4.5).unwrap()) })]
+                [("test".into(), Sensor{ output_type: "double".into(), min: -1.0, max: 1.0 })]
             ),
             axes: HashMap::from(
-                [("test".into(), Axis{ input_type: "float".into(), min: None, max: Some(to_raw_value::<f64>(&4.5).unwrap()) })]
+                [
+                    ("test1".into(), Axis{ input_type: "double".into(), min: 0.0, max: 1.0 }),
+                    ("test2".into(), Axis{ input_type: "double".into(), min: -1.0, max: 1.0 }),
+                ]
             ),
             streams: HashMap::from(
                 [("test".into(), Stream{
@@ -26,6 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 })]
             ),
         },
+    };
+    dbg!(to_raw_value(&msg));
+    let msg = Message{
+        message_id: 4096,
+        inner: MessageInner::AxisChange { name: "xAxis".into(), value: 3.0 },
     };
     dbg!(to_raw_value(&msg));
     Ok(())

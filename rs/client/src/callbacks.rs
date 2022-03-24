@@ -93,17 +93,19 @@ pub(crate) struct Function {
 #[allow(unused)] // TODO: once axes are implemented, remove this allow
 pub(crate) struct Axis {
     pub(crate) input_type: Type,
-    pub(crate) input_marshaller: InputMarshaller,
+    pub(crate) min: f64,
+    pub(crate) max: f64,
     pub(crate) fn_ptr: unsafe extern "C" fn(
-        input: *const libc::c_void,
+        input: f64,
     ),
 }
 
 pub(crate) struct Sensor {
     pub(crate) output_type: Type,
-    pub(crate) output_marshaller: OutputMarshaller,
+    pub(crate) min: f64,
+    pub(crate) max: f64,
     pub(crate) fn_ptr: unsafe extern "C" fn(
-        output: *mut libc::c_void,
+        output: *mut f64,
     ),
 }
 
@@ -186,18 +188,19 @@ impl Function {
 
 impl Axis {
     pub(crate) fn new(
-        input_type: Type,
+        min: f64,
+        max: f64,
         fn_ptr: unsafe extern "C" fn(
-            input: *const libc::c_void,
+            input: f64,
         ),
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let input_marshaller = *INPUT_MARSHALLERS.get(&input_type).ok_or(format!("unsupported input type: {:?}", input_type))?;
-        Ok(Self { input_type, input_marshaller, fn_ptr })
+        let input_type = Type::Prim(PrimType::Double);
+        Ok(Self { input_type, min, max, fn_ptr })
     }
-    pub(crate) fn call(&self, input: &RawValue) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let input: Box<dyn InputMarshall> = (self.input_marshaller)(input)?;
+    pub(crate) fn call(&self, input: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+        // let input = serde_json::from_str::<f64>(input.get())?;
         unsafe {
-            (self.fn_ptr)(input.data());
+            (self.fn_ptr)(input);
         }
         Ok(())
     }
@@ -205,18 +208,20 @@ impl Axis {
 
 impl Sensor {
     pub(crate) fn new(
-        output_type: Type,
+        min: f64,
+        max: f64,
         fn_ptr: unsafe extern "C" fn(
-            input: *mut libc::c_void,
+            input: *mut f64,
         ),
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let output_marshaller = *OUTPUT_MARSHALLERS.get(&output_type).ok_or(format!("unsupported output type: {:?}", output_type))?;
-        Ok(Self { output_type, output_marshaller, fn_ptr })
+        let output_type = Type::Prim(PrimType::Double);
+        // let output_marshaller = *OUTPUT_MARSHALLERS.get(&output_type).ok_or(format!("unsupported output type: {:?}", output_type))?;
+        Ok(Self { output_type, min, max, fn_ptr })
     }
     pub(crate) fn call(&self) -> Result<Box<RawValue>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut output: Box<dyn OutputMarshall> = (self.output_marshaller)();
+        let mut output: f64 = 0.0;;
         unsafe {
-            (self.fn_ptr)(output.data());
+            (self.fn_ptr)(&mut output);
         }
         Ok(output.to_json()?)
     }

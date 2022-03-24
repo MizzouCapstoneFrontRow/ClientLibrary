@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let msg = Message::new(
                 MessageInner::AxisChange {
                     name: "example".to_owned(),
-                    value: to_raw_value(&6.0)?,
+                    value: 6.0,
                 },
             );
             dbg!(&msg);
@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let msg = Message::new(
                 MessageInner::AxisChange {
                     name: "example".to_owned(),
-                    value: to_raw_value(&42.0)?,
+                    value: 42.0,
                 },
             );
             dbg!(&msg);

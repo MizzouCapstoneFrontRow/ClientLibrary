@@ -129,22 +129,18 @@ const char *count_bools_returns[][2] = {
     {NULL, NULL},
 };
 
-// Sensor (int count)
-// so value points to an int
-void count_sensor(void *const value) {
+// Sensor (double count)
+void count_sensor(double *const value) {
     static int count = 0;
     ++count;
-    *(int*)value = count;
+    *value = count;
 }
-const char *count_sensor_output_type = "int";
 
 // Axis (double count)
 // so value points to a const double
-void example_axis(const void *const value) {
-    double val = *(const double*)value;
-    printf("Axis got %lf.\n", val);
+void example_axis(const double value) {
+    printf("Axis got %lf.\n", value);
 }
-const char *example_axis_input_type = "double";
 
 
 int main() {
@@ -178,11 +174,11 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("registering \"count\" sensor\n");
-    success = RegisterSensor(handle, "count", count_sensor_output_type, count_sensor);
+    success = RegisterSensor(handle, "count", 0.0, 100000.0, count_sensor);
     printf("success: %d\n", (int)success);
 
     printf("registering \"example\" axis\n");
-    success = RegisterAxis(handle, "example", example_axis_input_type, example_axis);
+    success = RegisterAxis(handle, "example", -1.0, 1.0, example_axis);
     printf("success: %d\n", (int)success);
 
     printf("registering \"webcam\" stream\n");
