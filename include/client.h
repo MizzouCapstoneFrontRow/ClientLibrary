@@ -34,7 +34,7 @@ struct ArrayOutputParameter_t {
 * On success: returns a non-null handle (pointer).
 * On failure: returns ((ClientHandle)NULL)
 */
-ClientHandle InitializeLibrary(const char *jar_path);
+ClientHandle InitializeLibrary(void);
 
 /**
 * Set the name of the client.

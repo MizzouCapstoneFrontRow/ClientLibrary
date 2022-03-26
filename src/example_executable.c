@@ -144,7 +144,7 @@ void example_axis(const double value) {
 
 
 int main() {
-    ClientHandle handle = InitializeLibrary("./ClientLibrary.jar");
+    ClientHandle handle = InitializeLibrary();
     printf("handle: %p\n", handle);
 
     bool success;
