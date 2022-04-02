@@ -27,3 +27,6 @@ set_target_properties(client
 
 add_executable(example src/example_executable.c)
 target_link_libraries(example client)
+
+add_executable(example_pi src/example_pi.c)
+target_link_libraries(example_pi client)
