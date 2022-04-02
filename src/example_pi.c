@@ -113,7 +113,7 @@ void lift_axis (const double value) {
 
 
 int main() {
-    ClientHandle handle = InitializeLibrary("./ClientLibrary.jar");
+    ClientHandle handle = InitializeLibrary();
     bool success;
 
 
