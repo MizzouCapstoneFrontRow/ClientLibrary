@@ -1,24 +1,18 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-#[macro_use]
-pub(crate) mod util;
 //pub(crate) mod native_callback;
 pub(crate) mod callbacks;
 pub(crate) mod marshall;
-pub mod message;
 
 use std::{
     ffi::CStr,
     ptr::NonNull,
-    sync::Arc,
     collections::HashMap, io::BufReader,
 };
 use libc::{c_char, c_void};
 use indexmap::map::IndexMap; 
-use util::*;
 use callbacks::*;
-use message::{Message, MessageInner, try_read_message, try_write_message};
-
-pub type Stream = ();
+use common::message::{self, Message, MessageInner, try_read_message, try_write_message};
+use common::util::*;
 
 #[derive(Default)]
 pub struct UnconnectedClient {
@@ -98,16 +92,15 @@ pub extern "C" fn SetName(
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Ok(Some(message)) = message::try_read_message(&mut handle.read_connection) {
+    while let Ok(Some(message)) = try_read_message(&mut handle.read_connection) {
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
         dbg!(&message);
 
-        use crate::message::Message;
-        use crate::message::MessageInner::*;
+        use message::MessageInner::*;
         match message.inner {
             FunctionCall { name, parameters } => {
                 if let Some(function) = handle.functions.get(&name) {
-                    let result = function.call(&parameters).unwrap(); // TODO: error handle
+                    let result = function.call(&parameters).unwrap(); // TODO: error handle instead of unwrap
                     dbg!(&result);
                     let reply = Message::new(
                         FunctionReturn {
@@ -115,11 +108,65 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
                             returns: result,
                         },
                     );
-                    dbg!(&reply);
-                    message::try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 } else {
-                    eprintln!("TODO: reply with unsupported operation");
-//                    Message
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized function".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                }
+            },
+            AxisChange { name, value } => {
+                if let Some(axis) = handle.axes.get(&name) {
+                    let result = axis.call(value).unwrap(); // TODO: error handle instead of unwrap
+                    dbg!(&result);
+                    let reply = Message::new(
+                        AxisReturn {
+                            reply_to: message.message_id,
+                        },
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                } else {
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized axis".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                }
+            },
+            SensorRead { name } => {
+                if let Some(axis) = handle.sensors.get(&name) {
+                    let result = axis.call().unwrap(); // TODO: error handle instead of unwrap
+                    dbg!(&result);
+                    let reply = Message::new(
+                        SensorReturn {
+                            reply_to: message.message_id,
+                            value: result,
+                        },
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                } else {
+                    let reply = Message::new(
+                        UnsupportedOperation {
+                            reply_to: message.message_id,
+                            operation: name,
+                            reason: "unrecognized sensor".to_owned(),
+                        }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
                 }
             },
             _ => {todo!()},
@@ -250,23 +297,18 @@ pub extern "C" fn RegisterFunction(
 pub extern "C" fn RegisterSensor(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
-    output_type: Option<NonNull<c_char>>,
-    callback: Option<extern "C" fn (*mut c_void)>,
+    min: f64,
+    max: f64,
+    callback: Option<extern "C" fn (*mut f64)>,
 ) -> bool {
     shadow_or_return!(handle,       false, with_message "Error registering sensor: Invalid handle (null)");
     shadow_or_return!(callback,     false, with_message "Error registering sensor: Invalid callback (null)");
     shadow_or_return!(name,         false, with_message "Error registering sensor: Invalid name (null)");
-    shadow_or_return!(output_type,  false, with_message "Error registering sensor: Invalid output type (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
         with_message "Error registering sensor: Invalid name (not UTF-8)",
-    );
-    let output_type: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(output_type.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering sensor: Invalid output type (not UTF-8)",
     );
 
     if handle.sensors.contains_key(name) {
@@ -274,14 +316,10 @@ pub extern "C" fn RegisterSensor(
         return false;
     }
 
-    let output_type = unwrap_or_return!(
-        Type::from_str(output_type),
-        false,
-        with_message "Error registering axis: Unrecognized type when parsing sensor output type",
-    );
+    let output_type = Type::Prim(PrimType::Double);
 
     let sensor = unwrap_or_return!(
-        Sensor::new(output_type, callback),
+        Sensor::new(min, max, callback),
         false,
         with_message(e) "Error registering sensor: {:?}", e
     );
@@ -292,26 +330,66 @@ pub extern "C" fn RegisterSensor(
 
 
 #[no_mangle]
+pub extern "C" fn RegisterStream(
+    handle: Option<&mut ClientHandle>,
+    name: Option<NonNull<c_char>>,
+    format: Option<NonNull<c_char>>,
+    address: Option<NonNull<c_char>>,
+    port: u16,
+) -> bool {
+    shadow_or_return!(handle,       false, with_message "Error registering stream: Invalid handle (null)");
+    shadow_or_return!(name,         false, with_message "Error registering stream: Invalid name (null)");
+    shadow_or_return!(format,       false, with_message "Error registering stream: Invalid format (null)");
+    shadow_or_return!(address,      false, with_message "Error registering stream: Invalid address (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
+    let name: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid name (not UTF-8)",
+    );
+    let format: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(format.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid format (not UTF-8)",
+    );
+    let address: &str = unwrap_or_return!(
+        unsafe { CStr::from_ptr(address.as_ptr()) }.to_str(),
+        false,
+        with_message "Error registering stream: Invalid address (not UTF-8)",
+    );
+
+    if handle.streams.contains_key(name) {
+        eprintln!("Attempted to register stream {:?}, but a stream with that name was already registered.", name);
+        return false;
+    }
+
+    let stream = unwrap_or_return!(
+        Stream::new(format, address, port),
+        false,
+        with_message(e) "Error registering stream: {:?}", e
+    );
+
+    handle.streams.insert(name.to_owned(), stream);
+    true
+}
+
+
+#[no_mangle]
 pub extern "C" fn RegisterAxis(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
-    input_type: Option<NonNull<c_char>>,
-    callback: Option<extern "C" fn (*const c_void)>,
+    min: f64,
+    max: f64,
+    callback: Option<extern "C" fn (f64)>,
 ) -> bool {
     shadow_or_return!(handle,     false, with_message "Error registering axis: Invalid handle (null)");
     shadow_or_return!(callback,   false, with_message "Error registering axis: Invalid callback (null)");
     shadow_or_return!(name,       false, with_message "Error registering axis: Invalid name (null)");
-    shadow_or_return!(input_type, false, with_message "Error registering axis: Invalid input type (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering axis: Cannot register axes after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
         false,
         with_message "Error registering axis: Invalid name (not UTF-8)",
-    );
-    let input_type: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(input_type.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering axis: Invalid output type (not UTF-8)",
     );
 
     if handle.axes.contains_key(name) {
@@ -319,14 +397,10 @@ pub extern "C" fn RegisterAxis(
         return false;
     }
 
-    let input_type = unwrap_or_return!(
-        Type::from_str(input_type),
-        false,
-        with_message "Error registering axis: Unrecognized type when parsing axis input type",
-    );
+    let input_type = Type::Prim(PrimType::Double);
 
     let axis = unwrap_or_return!(
-        Axis::new(input_type, callback),
+        Axis::new(min, max, callback),
         false,
         with_message(e) "Error registering axis: {:?}", e
     );
@@ -396,18 +470,20 @@ pub extern "C" fn ConnectToServer(
             sensors: handle.sensors.iter().map(|(name, s)| {
                 eprintln!("TODO: sensor min/max");
                 let output_type = s.output_type.to_str().to_owned();
-                (name.clone(), message::Sensor { output_type, min: None, max: None })
+                (name.clone(), message::Sensor { output_type, min: s.min, max: s.max })
             }).collect(),
 
             axes: handle.axes.iter().map(|(name, a)| {
                 eprintln!("TODO: axis min/max");
                 let input_type = a.input_type.to_str().to_owned();
-                (name.clone(), message::Axis { input_type, min: None, max: None })
+                (name.clone(), message::Axis { input_type, min: a.min, max: a.max })
             }).collect(),
 
-            streams: handle.streams.iter().map(|(name, s)| {
-                eprintln!("TODO: streams in machine description");
-                (name.clone(), message::Stream { todo: Default::default() })
+            streams: handle.streams.iter().map(|(name, _s)| {
+                let Stream { format, address, port } = _s;
+                let format = format.clone();
+                let address = address.clone();
+                (name.clone(), message::Stream { format, address, port: *port })
             }).collect(),
         }
     );

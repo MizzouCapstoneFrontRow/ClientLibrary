@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! unwrap_or_return {
     ( $value:expr, $retval:expr , with_message($e:pat) $( $msg:tt )* ) => {
         // Option<T> -> Option<Option<T>> -> Option<T>
@@ -22,7 +23,9 @@ macro_rules! unwrap_or_return {
         }
     };
 }
+pub use unwrap_or_return;
 
+#[macro_export]
 macro_rules! shadow_or_return {
     ( mut $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
         let mut $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
@@ -31,7 +34,9 @@ macro_rules! shadow_or_return {
         let $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
     };
 }
+pub use shadow_or_return;
 
+#[macro_export]
 macro_rules! c_str {
     ( $s:literal ) => {
         {
@@ -46,3 +51,4 @@ macro_rules! c_str {
         }
     }
 }
+pub use c_str;

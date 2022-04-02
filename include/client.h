@@ -34,7 +34,7 @@ struct ArrayOutputParameter_t {
 * On success: returns a non-null handle (pointer).
 * On failure: returns ((ClientHandle)NULL)
 */
-ClientHandle InitializeLibrary(const char *jar_path);
+ClientHandle InitializeLibrary(void);
 
 /**
 * Set the name of the client.
@@ -68,7 +68,8 @@ bool RegisterFunction(
 * Registers a sensor.
 * TODO: document how callback works
 * @param handle     The client handle
-* @param output     Type descriptor of output
+* @param min        The minimum value that this sensor can have (not enforced)
+* @param max        The maximum value that this sensor can have (not enforced)
 * @param callback   The callback function to call when the server reads the sensor
 * @returns bool success (Was the sensor registered successfully)
 * Type descriptor: A type descriptor is const char*, the type of the parameter.
@@ -76,24 +77,45 @@ bool RegisterFunction(
 bool RegisterSensor(
     ClientHandle handle,
     const char *name,
-    const char *output_type,
-    void (*callback)(void *const)
+    double min,
+    double max,
+    void (*callback)(double *const)
 );
 
 /**
 * Registers an axis.
 * TODO: document how callback works
 * @param handle     The client handle
-* @param input      Type descriptor of input
+* @param min        The minimum value that this axis can have (not enforced)
+* @param max        The maximum value that this axis can have (not enforced)
 * @param callback   The callback function to call when the server moves the axis
 * @returns bool success (Was the axis registered successfully)
-* Type descriptor: A type descriptor is const char*, the type of the parameter.
+* The callback must take a single `double` parameter
 */
 bool RegisterAxis(
     ClientHandle handle,
     const char *name,
-    const char *input_type,
-    void (*callback)(const void *const)
+    double min,
+    double max,
+    void (*callback)(const double)
+);
+
+/**
+* Registers a stream.
+* @param handle     The client handle
+* @param name       The name of the stream
+* @param format     The format of the stream (only mjpeg is currently supported)
+* @param address    The IPv4 address of the stream
+* @param port       The TCP port
+* @returns bool success (Was the axis registered successfully)
+* Type descriptor: A type descriptor is const char*, the type of the parameter.
+*/
+bool RegisterStream(
+    ClientHandle handle,
+    const char *name,
+    const char *format,
+    const char *address,
+    unsigned short port
 );
 
 /**
