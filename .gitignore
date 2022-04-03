@@ -1,2 +1,5 @@
 rs/target/
 build/
+cmake-build-debug
+.idea
+Cargo.lock
