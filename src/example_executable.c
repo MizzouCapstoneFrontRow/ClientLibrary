@@ -186,7 +186,7 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 8089);
+    success = ConnectToServer(handle, "localhost", 45575);
     printf("success: %d\n", (int)success);
 
     for (int i = 0; i < 10; ++i) {
