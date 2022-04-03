@@ -189,7 +189,8 @@ int main() {
     success = ConnectToServer(handle, "localhost", 45575);
     printf("success: %d\n", (int)success);
 
-    for (int i = 0; i < 10; ++i) {
+    //for (int i = 0; i < 10; ++i) {
+    while(true) {
         sleep(1);
 
         printf("updating\n");
