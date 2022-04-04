@@ -161,7 +161,7 @@ pub struct Axis {
     pub min: f64,
     #[serde(default)]
     pub max: f64,
-    #[serde(default)]
+    #[serde(default, rename = "dir")]
     pub direction: String,
     #[serde(default)]
     pub group: String,
