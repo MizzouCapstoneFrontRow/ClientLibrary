@@ -150,11 +150,11 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("registering \"forward_backward\" axis");
-    success = RegisterAxis(handle, "forward_backward", -1.0, 1.0, front_back_axis);
+    success = RegisterAxis(handle, "forward_backward", -1.0, 1.0, "movement", "x", front_back_axis);
     printf("success: %d\n", (int)success);
 
     printf("registering \"Lift\" axis");
-    success = RegisterAxis(handle, "lift", -1.0, 1.0, lift_axis);
+    success = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "y", lift_axis);
     printf("success: %d\n", (int)success);
 
     // TODO: SET UP CAMERA FEED (sensor) 

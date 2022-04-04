@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             ),
             axes: HashMap::from(
                 [
-                    ("test1".into(), Axis{ input_type: "double".into(), min: 0.0, max: 1.0 }),
-                    ("test2".into(), Axis{ input_type: "double".into(), min: -1.0, max: 1.0 }),
+                    ("test1".into(), Axis{ input_type: "double".into(), min: 0.0, max: 1.0, group: "movement".into(), direction: "y".into() }),
+                    ("test2".into(), Axis{ input_type: "double".into(), min: -1.0, max: 1.0, group: "movement".into(), direction: "x".into() }),
                 ]
             ),
             streams: HashMap::from(

@@ -161,6 +161,10 @@ pub struct Axis {
     pub min: f64,
     #[serde(default)]
     pub max: f64,
+    #[serde(default)]
+    pub direction: String,
+    #[serde(default)]
+    pub group: String,
 }
 
 // TODO

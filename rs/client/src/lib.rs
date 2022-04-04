@@ -380,6 +380,8 @@ pub extern "C" fn RegisterAxis(
     name: Option<NonNull<c_char>>,
     min: f64,
     max: f64,
+    group: Option<NonNull<c_char>>,
+    direction: Option<NonNull<c_char>>,
     callback: Option<extern "C" fn (f64)>,
 ) -> bool {
     shadow_or_return!(handle,     false, with_message "Error registering axis: Invalid handle (null)");
@@ -392,6 +394,28 @@ pub extern "C" fn RegisterAxis(
         with_message "Error registering axis: Invalid name (not UTF-8)",
     );
 
+    let group = match group {
+        Some(group) => {
+            unwrap_or_return!(
+                unsafe { CStr::from_ptr(group.as_ptr()) }.to_str(),
+                false,
+                with_message "Error registering axis: Invalid group (not UTF-8)",
+            )
+        }
+        None => "",
+    };
+
+    let direction = match direction {
+        Some(direction) => {
+            unwrap_or_return!(
+                unsafe { CStr::from_ptr(direction.as_ptr()) }.to_str(),
+                false,
+                with_message "Error registering axis: Invalid direction (not UTF-8)",
+            )
+        }
+        None => "",
+    };
+
     if handle.axes.contains_key(name) {
         eprintln!("Error registering axis: Attempted to register axis {:?}, but an axis  with that name was already registered.", name);
         return false;
@@ -400,7 +424,7 @@ pub extern "C" fn RegisterAxis(
     let input_type = Type::Prim(PrimType::Double);
 
     let axis = unwrap_or_return!(
-        Axis::new(min, max, callback),
+        Axis::new(min, max, group.to_owned(), direction.to_owned(), callback),
         false,
         with_message(e) "Error registering axis: {:?}", e
     );
@@ -476,7 +500,9 @@ pub extern "C" fn ConnectToServer(
             axes: handle.axes.iter().map(|(name, a)| {
                 eprintln!("TODO: axis min/max");
                 let input_type = a.input_type.to_str().to_owned();
-                (name.clone(), message::Axis { input_type, min: a.min, max: a.max })
+                let direction = a.direction.clone();
+                let group = a.group.clone();
+                (name.clone(), message::Axis { input_type, min: a.min, max: a.max, group, direction })
             }).collect(),
 
             streams: handle.streams.iter().map(|(name, _s)| {
