@@ -33,12 +33,14 @@ double x = 0.0;
 double y = 0.0;
 
 void lift_axis (const double value) {
-    printf("LIFT Axis got %lf.\n", value);
+    //printf("LIFT Axis got %lf.\n", value);
     lift_speed = (int) round(value * 100.0);
+    if(abs(lift_speed) < 10)
+	    lift_speed = 0;
 }
 
 void update_lift() {
-	if(digitalRead(LIFT_TOP_ENDSTOP) == HIGH)
+	if(lift_speed > 0 && digitalRead(LIFT_TOP_ENDSTOP) == HIGH)
 		lift_speed = 0;
 
 	if(lift_speed == 0) {
@@ -57,7 +59,7 @@ void update_lift() {
 	}
 
 	softPwmWrite(LIFT_PWM, (int)abs(lift_speed));
-	printf("Lift speed: %d\n", lift_speed);
+	//printf("Lift speed: %d\n", lift_speed);
 }
 
 void update_left() {
@@ -77,7 +79,7 @@ void update_left() {
 	}
 
 	softPwmWrite(LEFT_PWM, (int)abs(left_speed));
-	printf("Left speed: %d\n", left_speed);
+	//printf("Left speed: %d\n", left_speed);
 }
 
 void update_right() {
@@ -97,19 +99,23 @@ void update_right() {
 	}
 
 	softPwmWrite(RIGHT_PWM, (int)abs(right_speed));
-	printf("Right speed: %d\n", right_speed);
+	//printf("Right speed: %d\n", right_speed);
 }
 
 void x_axis(const double value)
 {
-    printf("X Axis got %lf.\n", value);
+    //printf("X Axis got %lf.\n", value);
 	x = value;
+	if(fabs(x) < 0.1)
+		x = 0.0;
 }
 
 void y_axis(const double value)
 {
-    printf("Y Axis got %lf.\n", value);
+    //printf("Y Axis got %lf.\n", value);
 	y = value;
+	if(fabs(x) < 0.1)
+		x = 0.0;
 }
 
 void update_wheel_speeds()
@@ -118,8 +124,8 @@ void update_wheel_speeds()
 	double xx = x * x * x;
 	double yy = y * y * y;
 
-	printf("xx: %lf\n", xx);
-	printf("yy: %lf\n", yy);
+	//printf("xx: %lf\n", xx);
+	//printf("yy: %lf\n", yy);
 
 	left_speed = (int) round((yy + xx)*100.0);
 	right_speed = (int) round((yy - xx)*100.0);
@@ -150,27 +156,27 @@ int main() {
 //    pinMode(LIFT_ENCODER_MINUS, INPUT);
 
 
-    puts("setting name");
+    //puts("setting name");
     success = SetName(handle, "demo_pi");
-    printf("success: %d\n", (int)success);
+    //printf("success: %d\n", (int)success);
 
-    printf("registering \"Lift\" axis");
+    //printf("registering \"Lift\" axis");
     success = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "z", lift_axis);
-    printf("success: %d\n", (int)success);
+    //printf("success: %d\n", (int)success);
 
 
-    printf("registering \"Lift\" axis");
+    //printf("registering \"Lift\" axis");
     RegisterAxis(handle, "wheel turn", -1.0, 1.0, "drive", "x", x_axis);
-    printf("success: %d\n", (int)success);
+    //printf("success: %d\n", (int)success);
 
     
-    printf("registering \"Lift\" axis");
+    //printf("registering \"Lift\" axis");
     RegisterAxis(handle, "wheel speed", -1.0, 1.0, "drive", "z", y_axis);
-    printf("success: %d\n", (int)success);
+    //printf("success: %d\n", (int)success);
 
-    printf("connecting\n");
+    //printf("connecting\n");
     success = ConnectToServer(handle, "192.168.1.3", 45575);
-    printf("success: %d\n", (int)success);
+    //printf("success: %d\n", (int)success);
 
     if(!success)
 	    exit(-1);
@@ -184,6 +190,6 @@ int main() {
 	delay(10);
     }
 
-    printf("shutting down\n");
+    //printf("shutting down\n");
     ShutdownLibrary(handle);
 }
