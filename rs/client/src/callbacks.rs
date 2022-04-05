@@ -95,6 +95,8 @@ pub(crate) struct Axis {
     pub(crate) input_type: Type,
     pub(crate) min: f64,
     pub(crate) max: f64,
+    pub(crate) group: String,
+    pub(crate) direction: String,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         input: f64,
     ),
@@ -190,12 +192,14 @@ impl Axis {
     pub(crate) fn new(
         min: f64,
         max: f64,
+        group: String,
+        direction: String,
         fn_ptr: unsafe extern "C" fn(
             input: f64,
         ),
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let input_type = Type::Prim(PrimType::Double);
-        Ok(Self { input_type, min, max, fn_ptr })
+        Ok(Self { input_type, min, max, group, direction, fn_ptr })
     }
     pub(crate) fn call(&self, input: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         // let input = serde_json::from_str::<f64>(input.get())?;

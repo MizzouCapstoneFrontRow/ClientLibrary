@@ -178,7 +178,7 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("registering \"example\" axis\n");
-    success = RegisterAxis(handle, "example", -1.0, 1.0, example_axis);
+    success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "x", example_axis);
     printf("success: %d\n", (int)success);
 
     printf("registering \"webcam\" stream\n");

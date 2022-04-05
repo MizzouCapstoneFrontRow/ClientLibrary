@@ -161,6 +161,10 @@ pub struct Axis {
     pub min: f64,
     #[serde(default)]
     pub max: f64,
+    #[serde(default)]
+    pub direction: String,
+    #[serde(default)]
+    pub group: String,
 }
 
 // TODO
@@ -304,15 +308,13 @@ impl<'de> serde::de::Deserialize<'de> for Message {
         // Partially deserialize the message.
         let mut json = <HashMap<&'de str, &'de RawValue> as Deserialize<'de>>::deserialize(deserializer)?;
         // Get the message id, or error.
-        let message_id = json.remove("message_id")
-            .ok_or_else(|| D::Error::missing_field("message_id"))?;
-        let message_id = match serde_json::from_str::<i64>(message_id.get()) {
-            Ok(id @ 0..) => id,
-            _ => Err(D::Error::invalid_type(
+        let message_id = json.remove("message_id");
+        let message_id = message_id.map(|message_id|
+            serde_json::from_str::<i64>(message_id.get()).or_else(|_| Err(D::Error::invalid_type(
                 Unexpected::Other("TODO: unknown"),
-                &"a positive integer",
-            ))?,
-        };
+                &"an integer",
+            )))
+        ).unwrap_or(Ok(-1))?;
         // Get the message type, or error.
         let message_type = json.remove("message_type")
             .ok_or_else(|| D::Error::missing_field("message_type"))?;

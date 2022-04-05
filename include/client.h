@@ -88,6 +88,8 @@ bool RegisterSensor(
 * @param handle     The client handle
 * @param min        The minimum value that this axis can have (not enforced)
 * @param max        The maximum value that this axis can have (not enforced)
+* @param group      The group that this axis is a member of
+* @param direction  The direction that this axis is in
 * @param callback   The callback function to call when the server moves the axis
 * @returns bool success (Was the axis registered successfully)
 * The callback must take a single `double` parameter
@@ -97,6 +99,8 @@ bool RegisterAxis(
     const char *name,
     double min,
     double max,
+    const char *group,
+    const char *direction,
     void (*callback)(const double)
 );
 
