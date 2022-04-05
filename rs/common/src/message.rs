@@ -244,10 +244,14 @@ lazy_static::lazy_static! {
                     )*
                     // After all fields have been read, ensure that no unrecognized fields are left. If so, error.
                     if let Some((field, _value)) = json.into_iter().next() {
-                        Err(DeserializeError::UnknownField(
-                            field.to_owned().into(),
+                        dbg!((
+                            field.to_owned(),
                             &["message_id", "message_type", $( $field_str ),*],
-                        ))?;
+                        ));
+//                        Err(DeserializeError::UnknownField(
+//                            field.to_owned().into(),
+//                            &["message_id", "message_type", $( $field_str ),*],
+//                        ))?;
                     }
                     // Return a message with the given message id, and this variant message type, with all fields included.
                     Ok(Message {
@@ -348,10 +352,12 @@ pub fn try_read_message(stream: &mut BufReader<TcpStream>) -> Result<Option<Mess
     let mut events = Vec::with_capacity(1);
     poller.wait(&mut events, Some(std::time::Duration::from_secs(0)))?;
     poller.delete(stream.get_ref())?;
+	dbg!(events.len());
     if events.len() > 0 {
         let mut msg_buf = String::with_capacity(4096);
-        stream.read_line(&mut msg_buf)?;
-        Ok(Some(serde_json::from_str::<Message>(&msg_buf)?))
+        dbg!(stream.read_line(&mut msg_buf))?;
+	dbg!(&msg_buf);
+        dbg!(Ok(Some(dbg!(serde_json::from_str::<Message>(&msg_buf))?)))
     } else {
         Ok(None)
     }

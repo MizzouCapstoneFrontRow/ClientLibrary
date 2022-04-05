@@ -178,7 +178,7 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("registering \"example\" axis\n");
-    success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "x", example_axis);
+    success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "z", example_axis);
     printf("success: %d\n", (int)success);
 
     printf("registering \"webcam\" stream\n");
@@ -186,7 +186,7 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 45575);
+    success = ConnectToServer(handle, "192.168.1.3", 45575);
     printf("success: %d\n", (int)success);
 
     //for (int i = 0; i < 10; ++i) {

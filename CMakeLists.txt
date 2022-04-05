@@ -28,8 +28,8 @@ set_target_properties(client
 add_executable(example src/example_executable.c)
 target_link_libraries(example client)
 
-add_executable(example_pi src/example_pi.c)
-target_link_libraries(example_pi client )
+#add_executable(example_pi src/example_pi.c)
+#target_link_libraries(example_pi client )
 
-find_library(WIRINGPI_LIBRARIES NAMES wiringPi)
-target_link_libraries(example_pi ${WIRINGPI_LIBRARIES})
+#find_library(WIRINGPI_LIBRARIES NAMES wiringPi)
+#target_link_libraries(example_pi ${WIRINGPI_LIBRARIES})
