@@ -25,6 +25,9 @@ set_target_properties(client
     IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/rs/debug/libclient.so"
 )
 
+add_executable(simple_example src/simple_example_executable.c)
+target_link_libraries(simple_example client)
+
 add_executable(example src/example_executable.c)
 target_link_libraries(example client)
 
