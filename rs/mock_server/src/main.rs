@@ -123,6 +123,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&reply);
 
 
+            let msg = Message::new(
+                MessageInner::Reset {},
+            );
+            dbg!(&msg);
+            try_write_message(&write_stream, &msg)?;
+            // No reply expected
+
+
             let reply = loop {
                 if let Some(reply) = try_read_message(&mut read_stream).transpose() {
                     break reply;

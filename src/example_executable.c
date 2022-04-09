@@ -142,6 +142,11 @@ void example_axis(const double value) {
     printf("Axis got %lf.\n", value);
 }
 
+// Reset function
+void reset(void) {
+    printf("Resetting.\n");
+}
+
 
 int main() {
     ClientHandle handle = InitializeLibrary();
@@ -151,6 +156,10 @@ int main() {
 
     printf("setting name\n");
     success = SetName(handle, "Example");
+    printf("success: %d\n", (int)success);
+
+    printf("setting reset\n");
+    success = SetReset(handle, reset);
     printf("success: %d\n", (int)success);
 
     printf("registering \"print\" function\n");
