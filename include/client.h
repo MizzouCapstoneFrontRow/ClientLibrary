@@ -44,6 +44,17 @@ ClientHandle InitializeLibrary(void);
 bool SetName(ClientHandle, const char *name);
 
 /**
+* Set the reset function. This will be called when the server wants to reset the client
+* to a known safe state (e.g. if the unity client disconnects).
+* If this function pointer is NULL, or if the client never sets the function, then
+* the client library will do nothing upon recieving a reset message, except posibly print a
+* diagnostic message.
+* On success: returns true
+* On failure: returns false
+*/
+bool SetReset(ClientHandle, void (*reset)(void));
+
+/**
 * Registers a function.
 * TODO: document how callback works
 * @param handle     The client handle

@@ -130,6 +130,9 @@ pub enum MessageInner {
         operation: String,
         reason: String
     } = "unsupported_operation",
+    /// Message from the server representing that the client should reset to a safe state
+    /// (e.g. because unity has disconnected).
+    Reset {} = "reset",
     /// Message to/from the server representing that the sender has disconnected.
     Disconnect {} = "disconnect",
     /// TODO
@@ -293,6 +296,8 @@ lazy_static::lazy_static! {
         ));
         make_inner_deserializer!(Other "other" (
             data "data" "json data" Box<RawValue>,
+        ));
+        make_inner_deserializer!(Reset "reset" (
         ));
         make_inner_deserializer!(Disconnect "disconnect" (
         ));

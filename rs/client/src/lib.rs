@@ -17,6 +17,7 @@ use common::util::*;
 #[derive(Default)]
 pub struct UnconnectedClient {
     name: Option<String>,
+    reset: Option<extern "C" fn()>,
     streams: HashMap<String, Stream>,
     sensors: HashMap<String, Sensor>,
     axes: HashMap<String, Axis>,
@@ -25,6 +26,7 @@ pub struct UnconnectedClient {
 
 pub struct ConnectedClient {
     name: String,
+    reset: Option<extern "C" fn()>,
     streams: HashMap<String, Stream>,
     sensors: HashMap<String, Sensor>,
     axes: HashMap<String, Axis>,
@@ -89,6 +91,17 @@ pub extern "C" fn SetName(
 }
 
 #[no_mangle]
+pub extern "C" fn SetReset(
+    handle: Option<&mut ClientHandle>,
+    reset: Option<extern "C" fn()>
+) -> bool {
+    shadow_or_return!(mut handle, false, with_message "Error setting name: Invalid handle (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting name: Cannot set name after connecting to server.");
+    handle.reset = reset;
+    true
+}
+
+#[no_mangle]
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
@@ -105,6 +118,12 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
 
         use message::MessageInner::*;
         match message.inner {
+            Reset {} => {
+                // Reset to safe state, if client has a reset function
+                if let Some(reset) = handle.reset {
+                    unsafe { reset(); }
+                }
+            },
             FunctionCall { name, parameters } => {
                 if let Some(function) = handle.functions.get(&name) {
                     let result = function.call(&parameters).unwrap(); // TODO: error handle instead of unwrap
@@ -473,11 +492,12 @@ pub extern "C" fn ConnectToServer(
     let write_connection = connection;
 
     let UnconnectedClient {
-        name, sensors, axes, functions, streams
+        name, reset, sensors, axes, functions, streams
     } = std::mem::take(handle);
 
     *handle_ = ClientHandle::Connected(ConnectedClient {
         name: name.unwrap(),
+        reset,
         sensors, axes, functions, streams,
         write_connection,
         read_connection,
