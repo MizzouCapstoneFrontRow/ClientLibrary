@@ -175,7 +175,7 @@ int main() {
     //printf("success: %d\n", (int)success);
 
     //printf("connecting\n");
-    success = ConnectToServer(handle, "192.168.1.3", 45575);
+    success = ConnectToServer(handle, "192.168.1.7", 45575);
     //printf("success: %d\n", (int)success);
 
     if(!success)
@@ -187,7 +187,7 @@ int main() {
 	update_wheel_speeds();
 	update_left();
 	update_right();
-	delay(10);
+	//delay(10);
     }
 
     //printf("shutting down\n");
