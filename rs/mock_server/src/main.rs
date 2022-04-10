@@ -28,8 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 },
                 _ => panic!("no stream"),
             };
-            {
-                let (_, stream) = streams.iter().next().unwrap();
+            if let Some((_, stream)) = streams.iter().next() {
                 let addr = format!("http://{}:{}", stream.address, stream.port);
                 std::process::Command::new("firefox")
                     .args([addr])
