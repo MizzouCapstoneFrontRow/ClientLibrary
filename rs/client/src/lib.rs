@@ -110,7 +110,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
             Ok(message) => message,
             Err(e) => {
                 println!("Error: {:?}", e);
-                break;
+                return false;
             },
         };
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
