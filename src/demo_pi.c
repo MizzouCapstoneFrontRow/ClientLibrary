@@ -31,6 +31,7 @@ int left_speed = 0;
 int right_speed = 0;
 double x = 0.0;
 double y = 0.0;
+int forbidden_direction = 0;
 
 void lift_axis (const double value) {
     //printf("LIFT Axis got %lf.\n", value);
@@ -40,7 +41,17 @@ void lift_axis (const double value) {
 }
 
 void update_lift() {
-	if(lift_speed > 0 && digitalRead(LIFT_TOP_ENDSTOP) == HIGH)
+	// check if it's okay to allow the lift to move freely again
+	if(digitalRead(LIFT_TOP_ENDSTOP) == LOW)
+		forbidden_direction = 0;
+
+	if(forbidden_direction == 0 && digitalRead(LIFT_TOP_ENDSTOP) == HIGH) {
+		forbidden_direction = lift_speed; // can just set forbidden direction to speed since we're just comparing if above or below zero anyways
+
+	// stop lift from moving in forbidden direction
+	if(forbidden_direction > 0 && lift_speed > 0)
+		lift_speed = 0;
+	if(forbidden_direction < 0 && lift_speed < 0)
 		lift_speed = 0;
 
 	if(lift_speed == 0) {
