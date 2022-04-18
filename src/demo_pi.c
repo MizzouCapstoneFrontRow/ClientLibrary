@@ -133,7 +133,7 @@ void update_wheel_speeds()
 
 int main() {
     ClientHandle handle = InitializeLibrary();
-    bool success;
+    enum ErrorCode result;
 
 
     // Setup WiringPI and pinmodes
@@ -157,32 +157,32 @@ int main() {
 
 
     //puts("setting name");
-    success = SetName(handle, "demo_pi");
-    //printf("success: %d\n", (int)success);
+    result = SetName(handle, "demo_pi");
+    //printf("result: %d\n", (int)result);
 
     //printf("registering \"Lift\" axis");
-    success = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "z", lift_axis);
-    //printf("success: %d\n", (int)success);
+    result = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "z", lift_axis);
+    //printf("result: %d\n", (int)result);
 
 
     //printf("registering \"Lift\" axis");
     RegisterAxis(handle, "wheel turn", -1.0, 1.0, "drive", "x", x_axis);
-    //printf("success: %d\n", (int)success);
+    //printf("result: %d\n", (int)result);
 
     
     //printf("registering \"Lift\" axis");
     RegisterAxis(handle, "wheel speed", -1.0, 1.0, "drive", "z", y_axis);
-    //printf("success: %d\n", (int)success);
+    //printf("result: %d\n", (int)result);
 
     //printf("connecting\n");
-    success = ConnectToServer(handle, "192.168.1.7", 45575);
-    //printf("success: %d\n", (int)success);
+    result = ConnectToServer(handle, "192.168.1.7", 45575);
+    //printf("result: %d\n", (int)result);
 
-    if(!success)
+    if(result != NoError)
 	    exit(-1);
 
     while(true) {
-        success = LibraryUpdate(handle);
+        result = LibraryUpdate(handle);
 	update_lift();
 	update_wheel_speeds();
 	update_left();

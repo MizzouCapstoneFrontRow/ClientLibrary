@@ -5,7 +5,6 @@
 extern "C" {
 #endif // def __cplusplus
 
-#include <stdbool.h>
 #include <stdint.h>
 
 struct ClientHandle_t;
@@ -29,6 +28,44 @@ struct ArrayOutputParameter_t {
     void (*release)(int, void*);
 };
 
+enum ErrorCode {
+    /// Success
+    NoError = 0,
+    /// An invalid handle was passed (and the error was detected)
+    InvalidHandle = 1,
+    /// An operation that requires a connected handle was called
+    /// with an unconencted handle.
+    NotConnected = 2,
+    /// An operation that requires an unconnected handle was called
+    /// with a conencted handle.
+    AlreadyConnected = 3,
+    /// A required parameter was null.
+    NullParameter = 4,
+    /// A string was not UTF8.
+    NonUtf8String = 5,
+    /// A parameter was invalid.
+    InvalidParameter = 6,
+    /// An error occurred reading a message
+    MessageReadError = 7,
+    /// The server sent an invalid message
+    InvalidMessageReceived = 8,
+    /// An error occurred writing a message
+    MessageWriteError = 9,
+    /// Tried to register a axis/function/sensor/stream with the same name as an
+    /// existing one of the same thing.
+    DuplicateName = 10,
+    /// The server disconnected.
+    ServerDisconnected = 11,
+    /// The operation is unsupported (e.g. streams on Windows).
+    Unsupported = 12,
+    /// The server rejected the connection.
+    ConnectionRejected = 13,
+    /// Failed to connect because a required value (e.g. name) was not set.
+    MissingRequiredValue = 14,
+    /// Error connecting to server.
+    ConnectionError = 15
+};
+
 /**
 * Initialize the library and return a handle that will be passed to all library functions.
 * On success: returns a non-null handle (pointer).
@@ -41,7 +78,7 @@ ClientHandle InitializeLibrary(void);
 * On success: returns true
 * On failure: returns false
 */
-bool SetName(ClientHandle, const char *name);
+enum ErrorCode SetName(ClientHandle, const char *name);
 
 /**
 * Set the reset function. This will be called when the server wants to reset the client
@@ -52,7 +89,7 @@ bool SetName(ClientHandle, const char *name);
 * On success: returns true
 * On failure: returns false
 */
-bool SetReset(ClientHandle, void (*reset)(void));
+enum ErrorCode SetReset(ClientHandle, void (*reset)(void));
 
 /**
 * Registers a function.
@@ -61,13 +98,13 @@ bool SetReset(ClientHandle, void (*reset)(void));
 * @param parameters Parameter descriptors for input parameters
 * @param returns    Parameter descriptors for output parameters
 * @param callback   The callback function to call when the server calls the function
-* @returns bool success (Was the function registered successfully)
+* @returns enum ErrorCode success (Was the function registered successfully)
 * Parameter descriptor: A parameter descriptor is an array of two const char*,
 * the name and type, respectively, of the parameter.
 * The arrays of parameter descritptors passed into this function should be
 * terminated by {NULL, NULL}.
 */
-bool RegisterFunction(
+enum ErrorCode RegisterFunction(
     ClientHandle handle,
     const char *name,
     const char *(*parameters)[2],
@@ -82,10 +119,10 @@ bool RegisterFunction(
 * @param min        The minimum value that this sensor can have (not enforced)
 * @param max        The maximum value that this sensor can have (not enforced)
 * @param callback   The callback function to call when the server reads the sensor
-* @returns bool success (Was the sensor registered successfully)
+* @returns enum ErrorCode success (Was the sensor registered successfully)
 * Type descriptor: A type descriptor is const char*, the type of the parameter.
 */
-bool RegisterSensor(
+enum ErrorCode RegisterSensor(
     ClientHandle handle,
     const char *name,
     double min,
@@ -102,10 +139,10 @@ bool RegisterSensor(
 * @param group      The group that this axis is a member of
 * @param direction  The direction that this axis is in
 * @param callback   The callback function to call when the server moves the axis
-* @returns bool success (Was the axis registered successfully)
+* @returns enum ErrorCode success (Was the axis registered successfully)
 * The callback must take a single `double` parameter
 */
-bool RegisterAxis(
+enum ErrorCode RegisterAxis(
     ClientHandle handle,
     const char *name,
     double min,
@@ -122,10 +159,10 @@ bool RegisterAxis(
 * @param format     The format of the stream (only mjpeg is currently supported)
 * @param address    The IPv4 address of the stream
 * @param port       The TCP port
-* @returns bool success (Was the axis registered successfully)
+* @returns enum ErrorCode success (Was the axis registered successfully)
 * Type descriptor: A type descriptor is const char*, the type of the parameter.
 */
-bool RegisterStream(
+enum ErrorCode RegisterStream(
     ClientHandle handle,
     const char *name,
     const char *format,
@@ -137,9 +174,9 @@ bool RegisterStream(
 * Connects to a server
 * @param server     String that is the domain name or IP address (v4 or v6) of the server.
 * @param port       uint16_t that is the port to connect to on the server.
-* @returns bool success (Did the client connect successfully)
+* @returns enum ErrorCode success (Did the client connect successfully)
 */
-bool ConnectToServer(
+enum ErrorCode ConnectToServer(
     ClientHandle handle,
     const char *server,
     uint16_t port
@@ -148,7 +185,7 @@ bool ConnectToServer(
 /**
 * Updates internal library state and calls any necessary callbacks.
 */
-bool LibraryUpdate(ClientHandle);
+enum ErrorCode LibraryUpdate(ClientHandle);
 
 /**
 * Deinitialize and shut down the library.

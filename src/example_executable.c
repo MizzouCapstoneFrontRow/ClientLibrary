@@ -152,59 +152,59 @@ int main() {
     ClientHandle handle = InitializeLibrary();
     printf("handle: %p\n", handle);
 
-    bool success;
+    enum ErrorCode result;
 
     printf("setting name\n");
-    success = SetName(handle, "Example");
-    printf("success: %d\n", (int)success);
+    result = SetName(handle, "Example");
+    printf("result: %d\n", (int)result);
 
     printf("setting reset\n");
-    success = SetReset(handle, reset);
-    printf("success: %d\n", (int)success);
+    result = SetReset(handle, reset);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"print\" function\n");
-    success = RegisterFunction(handle, "print", print_parameters, print_returns, print_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "print", print_parameters, print_returns, print_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"multiply\" function\n");
-    success = RegisterFunction(handle, "multiply", multiply_parameters, multiply_returns, multiply_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "multiply", multiply_parameters, multiply_returns, multiply_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"average\" function\n");
-    success = RegisterFunction(handle, "average", average_parameters, average_returns, average_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "average", average_parameters, average_returns, average_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"sequence\" function\n");
-    success = RegisterFunction(handle, "sequence", sequence_parameters, sequence_returns, sequence_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "sequence", sequence_parameters, sequence_returns, sequence_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"count_bools\" function\n");
-    success = RegisterFunction(handle, "count_bools", count_bools_parameters, count_bools_returns, count_bools_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "count_bools", count_bools_parameters, count_bools_returns, count_bools_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"count\" sensor\n");
-    success = RegisterSensor(handle, "count", 0.0, 100000.0, count_sensor);
-    printf("success: %d\n", (int)success);
+    result = RegisterSensor(handle, "count", 0.0, 100000.0, count_sensor);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"example\" axis\n");
-    success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "x", example_axis);
-    printf("success: %d\n", (int)success);
+    result = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "x", example_axis);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"webcam\" stream\n");
-    success = RegisterStream(handle, "webcam", "mjpeg", "192.168.1.11", 8554);
-    printf("success: %d\n", (int)success);
+    result = RegisterStream(handle, "webcam", "mjpeg", "192.168.1.11", 8554);
+    printf("result: %d\n", (int)result);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 45575);
-    printf("success: %d\n", (int)success);
+    result = ConnectToServer(handle, "localhost", 45575);
+    printf("result: %d\n", (int)result);
 
     //for (int i = 0; i < 10; ++i) {
     while(true) {
         sleep(1);
 
         printf("updating\n");
-        success = LibraryUpdate(handle);
-        printf("success: %d\n", (int)success);
+        result = LibraryUpdate(handle);
+        printf("result: %d\n", (int)result);
 
     }
 
