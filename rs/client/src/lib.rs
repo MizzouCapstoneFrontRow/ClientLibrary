@@ -124,7 +124,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
             Ok(message) => message,
             Err(e) => {
                 println!("Error: {:?}", e);
-                return false;
+                return MessageReadError;
             },
         };
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
