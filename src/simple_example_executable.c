@@ -158,7 +158,7 @@ int main() {
     printf("success: %d\n", (int)success);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "192.168.1.3", 45575);
+    success = ConnectToServer(handle, "192.168.1.3", 45575, 45577);
     printf("success: %d\n", (int)success);
 
     //for (int i = 0; i < 10; ++i) {

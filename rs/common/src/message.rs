@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
 use std::net::TcpStream;
 use std::io::{Write, BufRead, BufReader};
+use std::thread::ThreadId;
+use std::time::Duration;
 use serde_json::value::{RawValue, to_raw_value};
 use polling::{Poller, Event};
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub message_id: i64,
     pub inner: MessageInner,
@@ -85,7 +88,7 @@ macro_rules! message_inner_enum_with_name {
 }
 message_inner_enum_with_name!{
 outer: Message
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MessageInner {
     /// Machine description. Initial message sent to server.
     /// Contains the name of the client, and the functions, sensors, axes, and streams it supports (by name).
@@ -96,6 +99,10 @@ pub enum MessageInner {
         axes: HashMap<String, Axis>,
         streams: HashMap<String, Stream>,
     } = "machine_description",
+    /// Sent from server to client to tell client if connection succeeded
+    SetupResponse {
+        connected: bool,
+    } = "setup_response",
     /// Message from the server representing a request to call a function.
     FunctionCall {
         name: String,
@@ -135,18 +142,27 @@ pub enum MessageInner {
     Reset {} = "reset",
     /// Message to/from the server representing that the sender has disconnected.
     Disconnect {} = "disconnect",
+    /// Message to/from the server representing a keepalive/"heartbeat" request/reply
+    Heartbeat {
+        is_reply: bool,
+    } = "heartbeat",
+    /// Message to the server on a stream connection to describe the stream
+    StreamDescription {
+        machine: String,
+        stream: String,
+    } = "stream_descriptor",
     /// TODO
     Other { data: Box<RawValue> } = "other",
 }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Function {
     pub parameters: HashMap<String, String>,
     pub returns: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sensor {
     #[serde(rename = "type")]
     pub output_type: String,
@@ -156,7 +172,7 @@ pub struct Sensor {
     pub max: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Axis {
     #[serde(rename = "type")]
     pub input_type: String,
@@ -171,11 +187,9 @@ pub struct Axis {
 }
 
 // TODO
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stream {
     pub format: String,
-    pub address: String,
-    pub port: u16,
 }
 
 #[allow(dead_code)]
@@ -267,6 +281,9 @@ lazy_static::lazy_static! {
             axes        "axes"      "axis descriptors"      HashMap<String, Axis>,
             streams     "streams"   "stream descriptors"    HashMap<String, Stream>,
         ));
+        make_inner_deserializer!(SetupResponse "setup_response" (
+            connected  "connected"  "did the connection succeed" bool,
+        ));
         make_inner_deserializer!(FunctionCall "function_call" (
             name        "name"          "a string"              String,
             parameters  "parameters"    "function parameters"   HashMap<String, Box<RawValue>>,
@@ -300,6 +317,13 @@ lazy_static::lazy_static! {
         make_inner_deserializer!(Reset "reset" (
         ));
         make_inner_deserializer!(Disconnect "disconnect" (
+        ));
+        make_inner_deserializer!(Heartbeat "heartbeat" (
+            is_reply "is_reply" "boolean indicating if this is a heartbeat request (false) or reply (true)" bool,
+        ));
+        make_inner_deserializer!(StreamDescription "stream_descriptor" (
+            machine "machine" "string name of this machine" String,
+            stream  "stream"  "string name of this stream"  String,
         ));
         map
     };
@@ -344,18 +368,35 @@ impl<'de> serde::de::Deserialize<'de> for Message {
 lazy_static::lazy_static! {
     static ref POLLER: Poller = Poller::new().unwrap_or_else(|e| panic!("Failed to create poller: {:?}", e));
     static ref KEY: AtomicUsize = AtomicUsize::new(0);
+    #[cfg(debug_assertions)]
+    static ref MAIN_THREAD: Mutex<Option<ThreadId>> = Mutex::new(None);
 }
 
-pub fn try_read_message(stream: &mut BufReader<TcpStream>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn try_read_message(stream: &mut BufReader<TcpStream>, timeout: Option<Duration>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    // polling's documentation states that `wait` may only be called on one thread at a time, so we will only ever call it on the main thread
+    #[cfg(debug_assertions)]
+    {
+        let mut main_thread = MAIN_THREAD.lock().unwrap();
+        match &mut *main_thread {
+            None => {
+                *main_thread = Some(std::thread::current().id())
+            }
+            Some(thread) => {
+                assert_eq!(*thread, std::thread::current().id());
+            }
+        };
+    }
+
     let poller: &Poller = &*POLLER;
     let key = KEY.fetch_add(1, Ordering::Relaxed);
     poller.add(stream.get_ref(), Event::readable(key))?;
     let mut events = Vec::with_capacity(1);
-    poller.wait(&mut events, Some(std::time::Duration::from_secs(0)))?;
+    poller.wait(&mut events, timeout)?;
     poller.delete(stream.get_ref())?;
     if events.len() > 0 {
         let mut msg_buf = String::with_capacity(4096);
         stream.read_line(&mut msg_buf)?;
+        dbg!(&msg_buf);
         Ok(Some(serde_json::from_str::<Message>(&msg_buf)?))
     } else {
         Ok(None)

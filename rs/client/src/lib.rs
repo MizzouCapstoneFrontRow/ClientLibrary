@@ -2,11 +2,21 @@
 //pub(crate) mod native_callback;
 pub(crate) mod callbacks;
 pub(crate) mod marshall;
+pub(crate) mod errors;
 
+use std::net::TcpStream;
+#[cfg(unix)]
+use std::os::unix::prelude::{RawFd, FromRawFd};
 use std::{
+    io::{Read, Write, BufReader},
+    fs::File,
     ffi::CStr,
     ptr::NonNull,
-    collections::HashMap, io::BufReader,
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    }, 
 };
 use libc::{c_char, c_void};
 use indexmap::map::IndexMap; 
@@ -33,6 +43,9 @@ pub struct ConnectedClient {
     functions: HashMap<String, Function>,
     read_connection: BufReader<std::net::TcpStream>,
     write_connection: std::net::TcpStream,
+    stream_threads: Vec<std::thread::JoinHandle<()>>,
+    // Set to false upon disconnection, threads will exit when their flag becomes false
+    stream_flag: Arc<AtomicBool>,
 }
 
 pub enum ClientHandle {
@@ -69,6 +82,11 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
         Unconnected(_) => {}, // nothing to do
         Connected(handle) => {
             try_write_message(&handle.write_connection, &Message::new(MessageInner::Disconnect {})); // TODO: error handle
+            handle.stream_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+            eprintln!("TODO: Maybe not join threads?");
+            for thread in handle.stream_threads {
+                thread.join().unwrap_or_else(|e| eprintln!("Stream thread error: {e:?}"));
+            }
         },
     };
 }
@@ -95,8 +113,8 @@ pub extern "C" fn SetReset(
     handle: Option<&mut ClientHandle>,
     reset: Option<extern "C" fn()>
 ) -> bool {
-    shadow_or_return!(mut handle, false, with_message "Error setting name: Invalid handle (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting name: Cannot set name after connecting to server.");
+    shadow_or_return!(mut handle, false, with_message "Error setting reset function: Invalid handle (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting reset function: Cannot set name after connecting to server.");
     handle.reset = reset;
     true
 }
@@ -105,12 +123,14 @@ pub extern "C" fn SetReset(
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Some(message) = try_read_message(&mut handle.read_connection).transpose() {
+    let mut messages_handled = 0;
+    while let Some(message) = try_read_message(&mut handle.read_connection, Some(std::time::Duration::from_secs(0))).transpose() {
+    // while let Some(message) = try_read_message(&mut handle.read_connection, None).transpose() {
         let message = match message {
             Ok(message) => message,
             Err(e) => {
                 println!("Error: {:?}", e);
-                continue;
+                break;
             },
         };
         eprintln!("TODO: handle I/O errors in LibraryUpdate");
@@ -118,6 +138,18 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
 
         use message::MessageInner::*;
         match message.inner {
+            Heartbeat { is_reply } => {
+                if is_reply {
+                    println!("handle client-initiated heartbeat requests");
+                } else {
+                    // Reply to the request
+                    let reply = Message::new(
+                        Heartbeat { is_reply: true }
+                    );
+                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
+                    dbg!(result);
+                }
+            },
             Reset {} => {
                 // Reset to safe state, if client has a reset function
                 if let Some(reset) = handle.reset {
@@ -197,8 +229,9 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
             },
             _ => {todo!()},
         }
-        
+        messages_handled += 1;
     }
+    dbg!(messages_handled);
 
 //    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false);
 //    eprintln!("TODO: LibraryUpdate");
@@ -360,13 +393,19 @@ pub extern "C" fn RegisterStream(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
     format: Option<NonNull<c_char>>,
-    address: Option<NonNull<c_char>>,
-    port: u16,
+    fd: RawFd,
 ) -> bool {
+    #[cfg(not(unix))] {
+        eprintln!("Error registering stream: Library does not support streams on non-unix platforms.");
+        return false;
+    }
     shadow_or_return!(handle,       false, with_message "Error registering stream: Invalid handle (null)");
     shadow_or_return!(name,         false, with_message "Error registering stream: Invalid name (null)");
     shadow_or_return!(format,       false, with_message "Error registering stream: Invalid format (null)");
-    shadow_or_return!(address,      false, with_message "Error registering stream: Invalid address (null)");
+    if fd < 0 {
+        eprintln!("Error registering streamInvalid file descriptor (negative)");
+        return false;
+    }
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
@@ -378,11 +417,6 @@ pub extern "C" fn RegisterStream(
         false,
         with_message "Error registering stream: Invalid format (not UTF-8)",
     );
-    let address: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(address.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering stream: Invalid address (not UTF-8)",
-    );
 
     if handle.streams.contains_key(name) {
         eprintln!("Attempted to register stream {:?}, but a stream with that name was already registered.", name);
@@ -390,12 +424,13 @@ pub extern "C" fn RegisterStream(
     }
 
     let stream = unwrap_or_return!(
-        Stream::new(format, address, port),
+        Stream::new(format, fd),
         false,
         with_message(e) "Error registering stream: {:?}", e
     );
 
     handle.streams.insert(name.to_owned(), stream);
+    dbg!(&handle.streams);
     true
 }
 
@@ -464,6 +499,7 @@ pub extern "C" fn ConnectToServer(
     handle: Option<&mut ClientHandle>,
     server: Option<NonNull<c_char>>,
     port: u16,
+    stream_port: u16,
 ) -> bool {
     shadow_or_return!(handle, false, with_message "Error connecting to server: Invalid handle (null)");
     shadow_or_return!(server, false, with_message "Error connecting to server: Invalid server (null)");
@@ -477,6 +513,13 @@ pub extern "C" fn ConnectToServer(
         eprintln!("Error connecting to server: no name set");
         return false;
     }
+
+    #[cfg(not(unix))]
+    if handle.streams.len() > 0 {
+        eprintln!("Error connecting to server: Library does not support streams on non-unix platforms.");
+        return false;
+    }
+
     let server: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(server.as_ptr()) }.to_str(),
         false,
@@ -488,27 +531,19 @@ pub extern "C" fn ConnectToServer(
         with_message(e) "Error connecting to server: {:?}", e
     );
 
-    let read_connection = BufReader::new(connection.try_clone().unwrap());
+    let mut read_connection = BufReader::new(connection.try_clone().unwrap());
     let write_connection = connection;
 
     let UnconnectedClient {
         name, reset, sensors, axes, functions, streams
     } = std::mem::take(handle);
-
-    *handle_ = ClientHandle::Connected(ConnectedClient {
-        name: name.unwrap(),
-        reset,
-        sensors, axes, functions, streams,
-        write_connection,
-        read_connection,
-    });
-    let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
+    drop(handle);
 
     let machine_description = Message::new(
         MessageInner::MachineDescription {
-            name: handle.name.clone().into(),
+            name: name.as_ref().unwrap().clone().into(),
 
-            functions: handle.functions.iter().map(|(name, f)| {
+            functions: functions.iter().map(|(name, f)| {
                 let parameters = f.parameters.iter().map(|(n, (t, _))| {
                     (n.clone(), t.to_str().to_owned())
                 }).collect();
@@ -518,13 +553,13 @@ pub extern "C" fn ConnectToServer(
                 (name.clone(), message::Function { parameters, returns })
             }).collect(),
 
-            sensors: handle.sensors.iter().map(|(name, s)| {
+            sensors: sensors.iter().map(|(name, s)| {
                 eprintln!("TODO: sensor min/max");
                 let output_type = s.output_type.to_str().to_owned();
                 (name.clone(), message::Sensor { output_type, min: s.min, max: s.max })
             }).collect(),
 
-            axes: handle.axes.iter().map(|(name, a)| {
+            axes: axes.iter().map(|(name, a)| {
                 eprintln!("TODO: axis min/max");
                 let input_type = a.input_type.to_str().to_owned();
                 let direction = a.direction.clone();
@@ -532,20 +567,86 @@ pub extern "C" fn ConnectToServer(
                 (name.clone(), message::Axis { input_type, min: a.min, max: a.max, group, direction })
             }).collect(),
 
-            streams: handle.streams.iter().map(|(name, _s)| {
-                let Stream { format, address, port } = _s;
+            streams: streams.iter().map(|(name, _s)| {
+                let Stream { format, fd } = _s;
                 let format = format.clone();
-                let address = address.clone();
-                (name.clone(), message::Stream { format, address, port: *port })
+                (name.clone(), message::Stream { format })
             }).collect(),
         }
     );
 
     unwrap_or_return!(
-        try_write_message(&handle.write_connection, &machine_description),
+        try_write_message(&write_connection, &machine_description),
         false,
         with_message(e) "Error connecting to server: Failed to send machine description {:?}", e
     );
+
+    let setup_response = unwrap_or_return!(
+        try_read_message(&mut read_connection, None),
+        false,
+        with_message(e) "Error connecting to server: Failed to receive setup response {:?}", e
+    );
+    dbg!(&setup_response);
+    let setup_response = unwrap_or_return!(
+        setup_response,
+        false,
+        with_message "Error connecting to server: Server did not send setup response",
+    );
+    match setup_response.inner {
+        MessageInner::SetupResponse { connected: true } => {},
+        MessageInner::SetupResponse { connected: false } => 
+            unwrap_or_return!(None, false, with_message "Error connecting to server: Server rejected connection"),
+        _ => unwrap_or_return!(None, false, with_message "Error connecting to server: Server did not send setup response as first message"),
+    };
+
+    let stream_flag = Arc::new(AtomicBool::new(true));
+
+    let machine = &name;
+
+    #[cfg(unix)]
+    let stream_threads = unwrap_or_return!({
+        streams.iter().map(
+            |(name, stream)| {
+                // Make new thread that continuously reads from rawfd and writes to a socket connection to server.
+                let fd = stream.fd;
+                let mut socket = unwrap_or_return!(TcpStream::connect((server, stream_port)), None, with_message "Error connecting to server: Failed to connect to stream port {stream_port} for stream {name:?}");
+
+                let msg = Message::new(
+                    MessageInner::StreamDescription { machine: machine.clone().unwrap(), stream: name.clone() }
+                );
+                unwrap_or_return!(try_write_message(&mut socket, &msg), None, with_message "Error connecting to server: Failed to write stream description for stream {name:?}");
+
+                let stream_flag = Arc::clone(&stream_flag);
+                Some(std::thread::spawn(
+                    move || {
+                        // Continuously read from fd and write to socket
+                        let mut f = unsafe { File::from_raw_fd(fd) };
+                        let mut buf = vec![0; 4096];
+                        while stream_flag.load(Ordering::Relaxed) {
+                            match f.read(&mut buf[..]) {
+                                Ok(0) => break,
+                                Ok(len) => socket.write_all(&buf[..len]).expect("failed to write data to server"),
+                                Err(e) => panic!("{:?}", e),
+                            };
+                        }
+                    }
+                ))
+            }
+        ).collect::<Option<_>>()
+    }, false);
+
+    eprintln!("TODO: debug why no more messages are being received");
+
+    *handle_ = ClientHandle::Connected(ConnectedClient {
+        name: name.unwrap(),
+        reset,
+        sensors, axes, functions, streams,
+        write_connection,
+        read_connection,
+        stream_flag,
+        stream_threads,
+    });
+    let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
 
     true
 }

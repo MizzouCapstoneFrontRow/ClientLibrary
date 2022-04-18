@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             streams: HashMap::from(
                 [("test".into(), Stream{
                     format: "mjpeg".into(),
-                    address: "192.168.1.11".into(),
-                    port: 8554,
+                    // address: "192.168.1.11".into(),
+                    // port: 8554,
                 })]
             ),
         },

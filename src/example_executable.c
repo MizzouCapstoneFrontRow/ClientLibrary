@@ -190,12 +190,12 @@ int main() {
     success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "x", example_axis);
     printf("success: %d\n", (int)success);
 
-    printf("registering \"webcam\" stream\n");
-    success = RegisterStream(handle, "webcam", "mjpeg", "192.168.1.11", 8554);
-    printf("success: %d\n", (int)success);
+//    printf("registering \"webcam\" stream\n");
+//    success = RegisterStream(handle, "webcam", "mjpeg", STDIN_FILENO);
+//    printf("success: %d\n", (int)success);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 45575);
+    success = ConnectToServer(handle, "localhost", 45575, 45577);
     printf("success: %d\n", (int)success);
 
     //for (int i = 0; i < 10; ++i) {

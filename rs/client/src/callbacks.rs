@@ -1,5 +1,5 @@
 use indexmap::map::IndexMap;
-use std::collections::HashMap;
+use std::{collections::HashMap, os::unix::prelude::RawFd};
 use serde_json::value::RawValue;
 use crate::marshall::{
     InputMarshall,
@@ -90,7 +90,7 @@ pub(crate) struct Function {
     ),
 }
 
-#[allow(unused)] // TODO: once axes are implemented, remove this allow
+#[derive(Debug)]
 pub(crate) struct Axis {
     pub(crate) input_type: Type,
     pub(crate) min: f64,
@@ -102,6 +102,7 @@ pub(crate) struct Axis {
     ),
 }
 
+#[derive(Debug)]
 pub(crate) struct Sensor {
     pub(crate) output_type: Type,
     pub(crate) min: f64,
@@ -111,10 +112,10 @@ pub(crate) struct Sensor {
     ),
 }
 
+#[derive(Debug)]
 pub(crate) struct Stream {
     pub(crate) format: String,
-    pub(crate) address: String,
-    pub(crate) port: u16,
+    pub(crate) fd: RawFd,
 }
 
 impl Function {
@@ -234,13 +235,11 @@ impl Sensor {
 impl Stream {
     pub(crate) fn new(
         format: &str,
-        address: &str,
-        port: u16,
+        fd: RawFd,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(Self {
             format: format.to_owned(),
-            address: address.to_owned(),
-            port,
+            fd,
         })
     }
 }

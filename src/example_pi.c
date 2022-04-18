@@ -160,7 +160,7 @@ int main() {
     // TODO: SET UP CAMERA FEED (sensor) 
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 8089);
+    success = ConnectToServer(handle, "localhost", 45575, 45577);
     printf("success: %d\n", (int)success);
 
     for ( int i = 0; i < 10; i++) {
