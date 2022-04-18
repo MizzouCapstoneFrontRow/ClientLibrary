@@ -191,11 +191,11 @@ int main() {
     printf("result: %d\n", (int)result);
 
     printf("registering \"webcam\" stream\n");
-    result = RegisterStream(handle, "webcam", "mjpeg", "192.168.1.11", 8554);
+    result = RegisterStream(handle, "webcam", "mjpeg", STDIN_FILENO);
     printf("result: %d\n", (int)result);
 
     printf("connecting\n");
-    result = ConnectToServer(handle, "localhost", 45575);
+    result = ConnectToServer(handle, "localhost", 45575, 45577);
     printf("result: %d\n", (int)result);
 
     //for (int i = 0; i < 10; ++i) {

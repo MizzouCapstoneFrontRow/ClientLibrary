@@ -4,6 +4,16 @@ pub(crate) mod callbacks;
 pub(crate) mod marshall;
 pub(crate) mod errors;
 
+use std::fs::File;
+use std::io::{Write, Read};
+use std::os::unix::prelude::FromRawFd;
+#[cfg(unix)]
+pub use std::os::unix::prelude::RawFd;
+#[cfg(not(unix))]
+pub type RawFd = libc::c_int;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::{
     ffi::CStr,
     ptr::NonNull,
@@ -35,6 +45,8 @@ pub struct ConnectedClient {
     functions: HashMap<String, Function>,
     read_connection: BufReader<std::net::TcpStream>,
     write_connection: std::net::TcpStream,
+    stream_flag: Arc<AtomicBool>,
+    stream_threads: Vec<JoinHandle<()>>,
 }
 
 pub enum ClientHandle {
@@ -362,13 +374,16 @@ pub extern "C" fn RegisterStream(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
     format: Option<NonNull<c_char>>,
-    address: Option<NonNull<c_char>>,
-    port: u16,
+    fd: RawFd,
 ) -> ErrorCode {
+    #[cfg(not(unix))] {
+        eprintln!("Error registering stream: Library does not support streams on non-unix platforms.");
+        return Unsupported;
+    }
+
     shadow_or_return!(handle,       InvalidHandle, with_message "Error registering stream: Invalid handle (null)");
     shadow_or_return!(name,         NullParameter, with_message "Error registering stream: Invalid name (null)");
     shadow_or_return!(format,       NullParameter, with_message "Error registering stream: Invalid format (null)");
-    shadow_or_return!(address,      NullParameter, with_message "Error registering stream: Invalid address (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
@@ -380,11 +395,6 @@ pub extern "C" fn RegisterStream(
         NonUtf8String,
         with_message "Error registering stream: Invalid format (not UTF-8)",
     );
-    let address: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(address.as_ptr()) }.to_str(),
-        NonUtf8String,
-        with_message "Error registering stream: Invalid address (not UTF-8)",
-    );
 
     if handle.streams.contains_key(name) {
         eprintln!("Attempted to register stream {:?}, but a stream with that name was already registered.", name);
@@ -392,7 +402,7 @@ pub extern "C" fn RegisterStream(
     }
 
     let stream = unwrap_or_return!(
-        Stream::new(format, address, port),
+        Stream::new(format, fd),
         InvalidParameter,
         with_message(e) "Error registering stream: {:?}", e
     );
@@ -466,6 +476,7 @@ pub extern "C" fn ConnectToServer(
     handle: Option<&mut ClientHandle>,
     server: Option<NonNull<c_char>>,
     port: u16,
+    stream_port: u16,
 ) -> ErrorCode {
     shadow_or_return!(handle, InvalidHandle, with_message "Error connecting to server: Invalid handle (null)");
     shadow_or_return!(server, NullParameter, with_message "Error connecting to server: Invalid server (null)");
@@ -497,12 +508,16 @@ pub extern "C" fn ConnectToServer(
         name, reset, sensors, axes, functions, streams
     } = std::mem::take(handle);
 
+    let stream_flag = Arc::new(AtomicBool::new(true));
+
     *handle_ = ClientHandle::Connected(ConnectedClient {
         name: name.unwrap(),
         reset,
         sensors, axes, functions, streams,
         write_connection,
         read_connection,
+        stream_flag,
+        stream_threads: vec![], // Will be set later
     });
     let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
 
@@ -534,11 +549,10 @@ pub extern "C" fn ConnectToServer(
                 (name.clone(), message::Axis { input_type, min: a.min, max: a.max, group, direction })
             }).collect(),
 
-            streams: handle.streams.iter().map(|(name, _s)| {
-                let Stream { format, address, port } = _s;
+            streams: handle.streams.iter().map(|(name, s)| {
+                let Stream { format, fd } = s;
                 let format = format.clone();
-                let address = address.clone();
-                (name.clone(), message::Stream { format, address, port: *port })
+                (name.clone(), message::Stream { format })
             }).collect(),
         }
     );
@@ -548,6 +562,57 @@ pub extern "C" fn ConnectToServer(
         MessageWriteError,
         with_message(e) "Error connecting to server: Failed to send machine description {:?}", e
     );
+
+    #[cfg(unix)]
+    {
+        let stream_threads = handle.streams.iter().map(
+            |(stream_name, stream)| {
+                let mut stream_socket = unwrap_or_return!(
+                    std::net::TcpStream::connect((server, stream_port)),
+                    None,
+                    with_message(e) "Error connecting to server stream port: {:?}", e
+                );
+
+                let stream_descriptor = Message::new(
+                    MessageInner::StreamDescription { machine: handle.name.clone(), stream: stream_name.clone() }
+                );
+                unwrap_or_return!(
+                    try_write_message(&stream_socket, &stream_descriptor),
+                    None,
+                    with_message(e) "Error writing to server stream port: {:?}", e
+                );
+
+                let stream_flag = Arc::clone(&handle.stream_flag);
+                let fd = stream.fd;
+
+                let thread = std::thread::spawn(move || {
+                    let mut buf = vec![0; 4096];
+                    let mut file = unsafe { File::from_raw_fd(fd) };
+                    while stream_flag.load(Ordering::Relaxed) {
+                        match file.read(&mut buf[..]) {
+                            Ok(0) => break,
+                            Ok(len) => stream_socket.write_all(&buf[..len]).expect("failed to write data to server"),
+                            Err(e) => panic!("{:?}", e),
+                        };
+                    }
+                });
+                Some(thread)
+            }
+        ).collect::<Option<Vec<_>>>();
+        let stream_threads = match stream_threads {
+            Some(ts) => ts,
+            None => {
+                handle.stream_flag.store(false, Ordering::SeqCst);
+                unwrap_or_return!(
+                    None,
+                    ConnectionError,
+                    with_message "Error connecting to server: Failed to start stream thread(s). There may be up to (number of streams registered - 1) threads running"
+                )
+            }
+        };
+
+        handle.stream_threads = stream_threads;
+    }
 
     NoError
 }

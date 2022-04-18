@@ -136,6 +136,11 @@ pub enum MessageInner {
     Reset {} = "reset",
     /// Message to/from the server representing that the sender has disconnected.
     Disconnect {} = "disconnect",
+    /// Message to the server on a stream connection to identify the stream
+    StreamDescription {
+        machine: String,
+        stream: String,
+    } = "stream_descriptor",
     /// TODO
     Other { data: Box<RawValue> } = "other",
 }
@@ -175,8 +180,6 @@ pub struct Axis {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Stream {
     pub format: String,
-    pub address: String,
-    pub port: u16,
 }
 
 #[allow(dead_code)]
@@ -301,6 +304,10 @@ lazy_static::lazy_static! {
         make_inner_deserializer!(Reset "reset" (
         ));
         make_inner_deserializer!(Disconnect "disconnect" (
+        ));
+        make_inner_deserializer!(StreamDescription "stream_descriptor" (
+            machine "machine" "string name of this machine" String,
+            stream  "stream"  "string name of this stream"  String,
         ));
         map
     };

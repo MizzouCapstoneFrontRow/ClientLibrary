@@ -9,6 +9,7 @@ use crate::marshall::{
     INPUT_MARSHALLERS,
     OUTPUT_MARSHALLERS,
 };
+use crate::RawFd;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PrimType {
@@ -113,8 +114,7 @@ pub(crate) struct Sensor {
 
 pub(crate) struct Stream {
     pub(crate) format: String,
-    pub(crate) address: String,
-    pub(crate) port: u16,
+    pub(crate) fd: RawFd,
 }
 
 impl Function {
@@ -223,7 +223,7 @@ impl Sensor {
         Ok(Self { output_type, min, max, fn_ptr })
     }
     pub(crate) fn call(&self) -> Result<Box<RawValue>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let mut output: f64 = 0.0;;
+        let mut output: f64 = 0.0;
         unsafe {
             (self.fn_ptr)(&mut output);
         }
@@ -234,13 +234,11 @@ impl Sensor {
 impl Stream {
     pub(crate) fn new(
         format: &str,
-        address: &str,
-        port: u16,
+        fd: RawFd,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(Self {
             format: format.to_owned(),
-            address: address.to_owned(),
-            port,
+            fd,
         })
     }
 }

@@ -157,17 +157,14 @@ enum ErrorCode RegisterAxis(
 * @param handle     The client handle
 * @param name       The name of the stream
 * @param format     The format of the stream (only mjpeg is currently supported)
-* @param address    The IPv4 address of the stream
-* @param port       The TCP port
-* @returns enum ErrorCode success (Was the axis registered successfully)
-* Type descriptor: A type descriptor is const char*, the type of the parameter.
+* @param fd         The file descriptor to read stream data from.
+* @returns enum ErrorCode success (Was the stream registered successfully)
 */
 enum ErrorCode RegisterStream(
     ClientHandle handle,
     const char *name,
     const char *format,
-    const char *address,
-    unsigned short port
+    int fd
 );
 
 /**
@@ -179,7 +176,8 @@ enum ErrorCode RegisterStream(
 enum ErrorCode ConnectToServer(
     ClientHandle handle,
     const char *server,
-    uint16_t port
+    uint16_t port,
+    uint16_t stream_port
 );
 
 /**
