@@ -105,7 +105,7 @@ pub extern "C" fn SetReset(
 pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
     shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Some(message) = try_read_message(&mut handle.read_connection).transpose() {
+    while let Some(message) = try_read_message(&mut handle.read_connection, Some(std::time::Duration::from_secs(0))).transpose() {
         let message = match message {
             Ok(message) => message,
             Err(e) => {

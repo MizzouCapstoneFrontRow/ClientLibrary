@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
 use std::net::TcpStream;
 use std::io::{Write, BufRead, BufReader};
+use std::time::Duration;
 use serde_json::value::{RawValue, to_raw_value};
 use polling::{Poller, Event};
 use serde::{Serialize, Deserialize};
@@ -346,12 +347,12 @@ lazy_static::lazy_static! {
     static ref KEY: AtomicUsize = AtomicUsize::new(0);
 }
 
-pub fn try_read_message(stream: &mut BufReader<TcpStream>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn try_read_message(stream: &mut BufReader<TcpStream>, timeout: Option<Duration>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
     let poller: &Poller = &*POLLER;
     let key = KEY.fetch_add(1, Ordering::Relaxed);
     poller.add(stream.get_ref(), Event::readable(key))?;
     let mut events = Vec::with_capacity(1);
-    poller.wait(&mut events, Some(std::time::Duration::from_secs(0)))?;
+    poller.wait(&mut events, timeout)?;
     poller.delete(stream.get_ref())?;
     if events.len() > 0 {
         let mut msg_buf = String::with_capacity(4096);

@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
 //        threads.push(thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let machine_description = loop {
-                if let Some(machine_description) = try_read_message(&mut read_stream).transpose() {
+                if let Some(machine_description) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break machine_description;
                 }
             };
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
@@ -79,14 +79,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
             dbg!(&reply);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
 
             let reply = loop {
-                if let Some(reply) = try_read_message(&mut read_stream).transpose() {
+                if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
                     break reply;
                 }
             };
