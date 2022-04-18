@@ -114,7 +114,7 @@ void lift_axis (const double value) {
 
 int main() {
     ClientHandle handle = InitializeLibrary();
-    bool success;
+    enum ErrorCode result;
 
 
     // Setup WiringPI and pinmodes
@@ -138,37 +138,37 @@ int main() {
 
 
     puts("setting name");
-    success = SetName(handle, "Example_pi");
-    printf("success: %d\n", (int)success);
+    result = SetName(handle, "Example_pi");
+    printf("result: %d\n", (int)result);
 
     printf("registering \"left_wheel\" function");
-    success = RegisterFunction(handle, "left_wheel", left_wheel_parameters, left_wheel_returns, left_wheel_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "left_wheel", left_wheel_parameters, left_wheel_returns, left_wheel_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"right_wheel\" function");
-    success = RegisterFunction(handle, "right_wheel", right_wheel_parameters, right_wheel_returns, right_wheel_callback);
-    printf("success: %d\n", (int)success);
+    result = RegisterFunction(handle, "right_wheel", right_wheel_parameters, right_wheel_returns, right_wheel_callback);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"forward_backward\" axis");
-    success = RegisterAxis(handle, "forward_backward", -1.0, 1.0, "movement", "x", front_back_axis);
-    printf("success: %d\n", (int)success);
+    result = RegisterAxis(handle, "forward_backward", -1.0, 1.0, "movement", "x", front_back_axis);
+    printf("result: %d\n", (int)result);
 
     printf("registering \"Lift\" axis");
-    success = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "y", lift_axis);
-    printf("success: %d\n", (int)success);
+    result = RegisterAxis(handle, "lift", -1.0, 1.0, "lift", "y", lift_axis);
+    printf("result: %d\n", (int)result);
 
     // TODO: SET UP CAMERA FEED (sensor) 
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "localhost", 8089);
-    printf("success: %d\n", (int)success);
+    result = ConnectToServer(handle, "localhost", 8089);
+    printf("result: %d\n", (int)result);
 
     for ( int i = 0; i < 10; i++) {
         sleep(1);
 
         printf("updating\n");
-        success = LibraryUpdate(handle);
-        printf("success: %d\n", (int) success);
+        result = LibraryUpdate(handle);
+        printf("result: %d\n", (int) result);
     }
 
     printf("shutting down\n");

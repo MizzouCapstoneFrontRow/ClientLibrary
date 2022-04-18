@@ -147,27 +147,27 @@ int main() {
     ClientHandle handle = InitializeLibrary();
     printf("handle: %p\n", handle);
 
-    bool success;
+    enum ErrorCode result;
 
     printf("setting name\n");
-    success = SetName(handle, "Example");
-    printf("success: %d\n", (int)success);
+    result = SetName(handle, "Example");
+    printf("result: %d\n", (int)result);
 
     printf("registering \"example\" axis\n");
-    success = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "z", example_axis);
-    printf("success: %d\n", (int)success);
+    result = RegisterAxis(handle, "example", -1.0, 1.0, "example_group", "z", example_axis);
+    printf("result: %d\n", (int)result);
 
     printf("connecting\n");
-    success = ConnectToServer(handle, "192.168.1.3", 45575);
-    printf("success: %d\n", (int)success);
+    result = ConnectToServer(handle, "192.168.1.3", 45575, 45577);
+    printf("result: %d\n", (int)result);
 
     //for (int i = 0; i < 10; ++i) {
     while(true) {
         sleep(1);
 
         printf("updating\n");
-        success = LibraryUpdate(handle);
-        printf("success: %d\n", (int)success);
+        result = LibraryUpdate(handle);
+        printf("result: %d\n", (int)result);
 
     }
 

@@ -2,7 +2,18 @@
 //pub(crate) mod native_callback;
 pub(crate) mod callbacks;
 pub(crate) mod marshall;
+pub(crate) mod errors;
 
+use std::fs::File;
+use std::io::{Write, Read};
+use std::os::unix::prelude::FromRawFd;
+#[cfg(unix)]
+pub use std::os::unix::prelude::RawFd;
+#[cfg(not(unix))]
+pub type RawFd = libc::c_int;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::{
     ffi::CStr,
     ptr::NonNull,
@@ -13,6 +24,7 @@ use indexmap::map::IndexMap;
 use callbacks::*;
 use common::message::{self, Message, MessageInner, try_read_message, try_write_message};
 use common::util::*;
+use errors::ErrorCode::{self, *};
 
 #[derive(Default)]
 pub struct UnconnectedClient {
@@ -33,6 +45,8 @@ pub struct ConnectedClient {
     functions: HashMap<String, Function>,
     read_connection: BufReader<std::net::TcpStream>,
     write_connection: std::net::TcpStream,
+    stream_flag: Arc<AtomicBool>,
+    stream_threads: Vec<JoinHandle<()>>,
 }
 
 pub enum ClientHandle {
@@ -77,35 +91,35 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
 pub extern "C" fn SetName(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>
-) -> bool {
-    shadow_or_return!(mut handle, false, with_message "Error setting name: Invalid handle (null)");
-    shadow_or_return!(name,       false, with_message "Error setting name: Invalid name (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting name: Cannot set name after connecting to server.");
+) -> ErrorCode {
+    shadow_or_return!(mut handle, InvalidHandle, with_message "Error setting name: Invalid handle (null)");
+    shadow_or_return!(name,       NullParameter, with_message "Error setting name: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error setting name: Cannot set name after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error setting name: Invalid name (not UTF-8)",
     );
     handle.name = Some(name.to_owned());
-    true
+    NoError
 }
 
 #[no_mangle]
 pub extern "C" fn SetReset(
     handle: Option<&mut ClientHandle>,
     reset: Option<extern "C" fn()>
-) -> bool {
-    shadow_or_return!(mut handle, false, with_message "Error setting name: Invalid handle (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error setting name: Cannot set name after connecting to server.");
+) -> ErrorCode {
+    shadow_or_return!(mut handle, InvalidHandle, with_message "Error setting name: Invalid handle (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error setting name: Cannot set name after connecting to server.");
     handle.reset = reset;
-    true
+    NoError
 }
 
 #[no_mangle]
-pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
-    shadow_or_return!(handle, false, with_message "Error updating: Invalid handle (null)");
-    let handle = unwrap_or_return!(handle.as_connected_mut(), false, with_message "Error updating: Cannot update before connecting to server.");
-    while let Some(message) = try_read_message(&mut handle.read_connection).transpose() {
+pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode {
+    shadow_or_return!(handle, InvalidHandle, with_message "Error updating: Invalid handle (null)");
+    let handle = unwrap_or_return!(handle.as_connected_mut(), AlreadyConnected, with_message "Error updating: Cannot update before connecting to server.");
+    while let Some(message) = try_read_message(&mut handle.read_connection, Some(std::time::Duration::from_secs(0))).transpose() {
         let message = match message {
             Ok(message) => message,
             Err(e) => {
@@ -233,7 +247,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> bool {
 //    dbg!(serde_json::to_string(&result));
 
 
-    true
+    NoError
 }
 
 unsafe fn parse_descriptors(descriptors: *const [*const c_char; 2]) -> Result<IndexMap<String, Type>, &'static str> {
@@ -279,30 +293,30 @@ pub extern "C" fn RegisterFunction(
     parameters: *const [*const c_char; 2],
     returns: *const [*const c_char; 2],
     callback: Option<extern "C" fn (*const *const c_void, *const *mut c_void)>,
-) -> bool {
-    shadow_or_return!(handle,   false, with_message "Error registering function: Invalid handle (null)");
-    shadow_or_return!(callback, false, with_message "Error registering function: Invalid callback (null)");
-    shadow_or_return!(name,     false, with_message "Error registering function: Invalid name (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering function: Cannot register functions after connecting to server.");
+) -> ErrorCode {
+    shadow_or_return!(handle,   InvalidHandle, with_message "Error registering function: Invalid handle (null)");
+    shadow_or_return!(callback, NullParameter, with_message "Error registering function: Invalid callback (null)");
+    shadow_or_return!(name,     NullParameter, with_message "Error registering function: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error registering function: Cannot register functions after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering function: Invalid handle (null)",
+        NonUtf8String,
+        with_message "Error registering function: Invalid handle (not utf8)",
     );
 
     if handle.functions.contains_key(name) {
         eprintln!("Error registering function: attempted to register function {:?}, but a function with that name was already registered.", name);
-        return false;
+        return DuplicateName;
     }
 
     let parameters = unwrap_or_return!(
         unsafe { parse_descriptors(parameters) },
-        false,
+        InvalidParameter,
         with_message(s) "Error parsing function parameters: {}", s,
     );
     let returns = unwrap_or_return!(
         unsafe { parse_descriptors(returns) },
-        false,
+        InvalidParameter,
         with_message(s) "Error parsing function returns: {}", s,
     );
 
@@ -311,12 +325,12 @@ pub extern "C" fn RegisterFunction(
 
     let function = unwrap_or_return!(
         Function::new(parameters, returns, callback),
-        false,
+        InvalidParameter,
         with_message(e) "Error registering function: {:?}", e
     );
 
     handle.functions.insert(name.to_owned(), function);
-    true
+    NoError
 }
 
 #[no_mangle]
@@ -326,32 +340,32 @@ pub extern "C" fn RegisterSensor(
     min: f64,
     max: f64,
     callback: Option<extern "C" fn (*mut f64)>,
-) -> bool {
-    shadow_or_return!(handle,       false, with_message "Error registering sensor: Invalid handle (null)");
-    shadow_or_return!(callback,     false, with_message "Error registering sensor: Invalid callback (null)");
-    shadow_or_return!(name,         false, with_message "Error registering sensor: Invalid name (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
+) -> ErrorCode {
+    shadow_or_return!(handle,       InvalidHandle, with_message "Error registering sensor: Invalid handle (null)");
+    shadow_or_return!(callback,     NullParameter, with_message "Error registering sensor: Invalid callback (null)");
+    shadow_or_return!(name,         NullParameter, with_message "Error registering sensor: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error registering sensor: Invalid name (not UTF-8)",
     );
 
     if handle.sensors.contains_key(name) {
         eprintln!("Attempted to register sensor {:?}, but a function with that name was already registered.", name);
-        return false;
+        return DuplicateName;
     }
 
     let output_type = Type::Prim(PrimType::Double);
 
     let sensor = unwrap_or_return!(
         Sensor::new(min, max, callback),
-        false,
+        InvalidParameter,
         with_message(e) "Error registering sensor: {:?}", e
     );
 
     handle.sensors.insert(name.to_owned(), sensor);
-    true
+    NoError
 }
 
 
@@ -360,43 +374,41 @@ pub extern "C" fn RegisterStream(
     handle: Option<&mut ClientHandle>,
     name: Option<NonNull<c_char>>,
     format: Option<NonNull<c_char>>,
-    address: Option<NonNull<c_char>>,
-    port: u16,
-) -> bool {
-    shadow_or_return!(handle,       false, with_message "Error registering stream: Invalid handle (null)");
-    shadow_or_return!(name,         false, with_message "Error registering stream: Invalid name (null)");
-    shadow_or_return!(format,       false, with_message "Error registering stream: Invalid format (null)");
-    shadow_or_return!(address,      false, with_message "Error registering stream: Invalid address (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
+    fd: RawFd,
+) -> ErrorCode {
+    #[cfg(not(unix))] {
+        eprintln!("Error registering stream: Library does not support streams on non-unix platforms.");
+        return Unsupported;
+    }
+
+    shadow_or_return!(handle,       InvalidHandle, with_message "Error registering stream: Invalid handle (null)");
+    shadow_or_return!(name,         NullParameter, with_message "Error registering stream: Invalid name (null)");
+    shadow_or_return!(format,       NullParameter, with_message "Error registering stream: Invalid format (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error registering sensor: Cannot register sensors after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error registering stream: Invalid name (not UTF-8)",
     );
     let format: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(format.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error registering stream: Invalid format (not UTF-8)",
-    );
-    let address: &str = unwrap_or_return!(
-        unsafe { CStr::from_ptr(address.as_ptr()) }.to_str(),
-        false,
-        with_message "Error registering stream: Invalid address (not UTF-8)",
     );
 
     if handle.streams.contains_key(name) {
         eprintln!("Attempted to register stream {:?}, but a stream with that name was already registered.", name);
-        return false;
+        return DuplicateName;
     }
 
     let stream = unwrap_or_return!(
-        Stream::new(format, address, port),
-        false,
+        Stream::new(format, fd),
+        InvalidParameter,
         with_message(e) "Error registering stream: {:?}", e
     );
 
     handle.streams.insert(name.to_owned(), stream);
-    true
+    NoError
 }
 
 
@@ -409,14 +421,14 @@ pub extern "C" fn RegisterAxis(
     group: Option<NonNull<c_char>>,
     direction: Option<NonNull<c_char>>,
     callback: Option<extern "C" fn (f64)>,
-) -> bool {
-    shadow_or_return!(handle,     false, with_message "Error registering axis: Invalid handle (null)");
-    shadow_or_return!(callback,   false, with_message "Error registering axis: Invalid callback (null)");
-    shadow_or_return!(name,       false, with_message "Error registering axis: Invalid name (null)");
-    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false, with_message "Error registering axis: Cannot register axes after connecting to server.");
+) -> ErrorCode {
+    shadow_or_return!(handle,     InvalidHandle, with_message "Error registering axis: Invalid handle (null)");
+    shadow_or_return!(callback,   NullParameter, with_message "Error registering axis: Invalid callback (null)");
+    shadow_or_return!(name,       NullParameter, with_message "Error registering axis: Invalid name (null)");
+    let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error registering axis: Cannot register axes after connecting to server.");
     let name: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(name.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error registering axis: Invalid name (not UTF-8)",
     );
 
@@ -424,7 +436,7 @@ pub extern "C" fn RegisterAxis(
         Some(group) => {
             unwrap_or_return!(
                 unsafe { CStr::from_ptr(group.as_ptr()) }.to_str(),
-                false,
+                NonUtf8String,
                 with_message "Error registering axis: Invalid group (not UTF-8)",
             )
         }
@@ -435,7 +447,7 @@ pub extern "C" fn RegisterAxis(
         Some(direction) => {
             unwrap_or_return!(
                 unsafe { CStr::from_ptr(direction.as_ptr()) }.to_str(),
-                false,
+                NonUtf8String,
                 with_message "Error registering axis: Invalid direction (not UTF-8)",
             )
         }
@@ -444,19 +456,19 @@ pub extern "C" fn RegisterAxis(
 
     if handle.axes.contains_key(name) {
         eprintln!("Error registering axis: Attempted to register axis {:?}, but an axis  with that name was already registered.", name);
-        return false;
+        return DuplicateName;
     }
 
     let input_type = Type::Prim(PrimType::Double);
 
     let axis = unwrap_or_return!(
         Axis::new(min, max, group.to_owned(), direction.to_owned(), callback),
-        false,
+        InvalidParameter,
         with_message(e) "Error registering axis: {:?}", e
     );
 
     handle.axes.insert(name.to_owned(), axis);
-    true
+    NoError
 }
 
 #[no_mangle]
@@ -464,27 +476,28 @@ pub extern "C" fn ConnectToServer(
     handle: Option<&mut ClientHandle>,
     server: Option<NonNull<c_char>>,
     port: u16,
-) -> bool {
-    shadow_or_return!(handle, false, with_message "Error connecting to server: Invalid handle (null)");
-    shadow_or_return!(server, false, with_message "Error connecting to server: Invalid server (null)");
+    stream_port: u16,
+) -> ErrorCode {
+    shadow_or_return!(handle, InvalidHandle, with_message "Error connecting to server: Invalid handle (null)");
+    shadow_or_return!(server, NullParameter, with_message "Error connecting to server: Invalid server (null)");
     let handle_ = handle;
     let handle = unwrap_or_return!(
         handle_.as_unconnected_mut(),
-        false,
+        AlreadyConnected,
         with_message "Error connecting to server: already connected",
     );
     if handle.name.is_none() {
         eprintln!("Error connecting to server: no name set");
-        return false;
+        return MissingRequiredValue;
     }
     let server: &str = unwrap_or_return!(
         unsafe { CStr::from_ptr(server.as_ptr()) }.to_str(),
-        false,
+        NonUtf8String,
         with_message "Error connecting to server: server address not valid UTF-8",
     );
     let connection = unwrap_or_return!(
         std::net::TcpStream::connect((server, port)),
-        false,
+        ConnectionError,
         with_message(e) "Error connecting to server: {:?}", e
     );
 
@@ -495,12 +508,16 @@ pub extern "C" fn ConnectToServer(
         name, reset, sensors, axes, functions, streams
     } = std::mem::take(handle);
 
+    let stream_flag = Arc::new(AtomicBool::new(true));
+
     *handle_ = ClientHandle::Connected(ConnectedClient {
         name: name.unwrap(),
         reset,
         sensors, axes, functions, streams,
         write_connection,
         read_connection,
+        stream_flag,
+        stream_threads: vec![], // Will be set later
     });
     let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
 
@@ -532,20 +549,70 @@ pub extern "C" fn ConnectToServer(
                 (name.clone(), message::Axis { input_type, min: a.min, max: a.max, group, direction })
             }).collect(),
 
-            streams: handle.streams.iter().map(|(name, _s)| {
-                let Stream { format, address, port } = _s;
+            streams: handle.streams.iter().map(|(name, s)| {
+                let Stream { format, fd } = s;
                 let format = format.clone();
-                let address = address.clone();
-                (name.clone(), message::Stream { format, address, port: *port })
+                (name.clone(), message::Stream { format })
             }).collect(),
         }
     );
 
     unwrap_or_return!(
         try_write_message(&handle.write_connection, &machine_description),
-        false,
+        MessageWriteError,
         with_message(e) "Error connecting to server: Failed to send machine description {:?}", e
     );
 
-    true
+    #[cfg(unix)]
+    {
+        let stream_threads = handle.streams.iter().map(
+            |(stream_name, stream)| {
+                let mut stream_socket = unwrap_or_return!(
+                    std::net::TcpStream::connect((server, stream_port)),
+                    None,
+                    with_message(e) "Error connecting to server stream port: {:?}", e
+                );
+
+                let stream_descriptor = Message::new(
+                    MessageInner::StreamDescription { machine: handle.name.clone(), stream: stream_name.clone() }
+                );
+                unwrap_or_return!(
+                    try_write_message(&stream_socket, &stream_descriptor),
+                    None,
+                    with_message(e) "Error writing to server stream port: {:?}", e
+                );
+
+                let stream_flag = Arc::clone(&handle.stream_flag);
+                let fd = stream.fd;
+
+                let thread = std::thread::spawn(move || {
+                    let mut buf = vec![0; 4096];
+                    let mut file = unsafe { File::from_raw_fd(fd) };
+                    while stream_flag.load(Ordering::Relaxed) {
+                        match file.read(&mut buf[..]) {
+                            Ok(0) => break,
+                            Ok(len) => stream_socket.write_all(&buf[..len]).expect("failed to write data to server"),
+                            Err(e) => panic!("{:?}", e),
+                        };
+                    }
+                });
+                Some(thread)
+            }
+        ).collect::<Option<Vec<_>>>();
+        let stream_threads = match stream_threads {
+            Some(ts) => ts,
+            None => {
+                handle.stream_flag.store(false, Ordering::SeqCst);
+                unwrap_or_return!(
+                    None,
+                    ConnectionError,
+                    with_message "Error connecting to server: Failed to start stream thread(s). There may be up to (number of streams registered - 1) threads running"
+                )
+            }
+        };
+
+        handle.stream_threads = stream_threads;
+    }
+
+    NoError
 }
