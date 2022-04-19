@@ -31,15 +31,20 @@ target_link_libraries(simple_example client)
 add_executable(example src/example_executable.c)
 target_link_libraries(example client)
 
-add_executable(example_pi src/example_pi.c)
-target_link_libraries(example_pi client )
 
 find_library(WIRINGPI_LIBRARIES NAMES wiringPi)
-target_link_libraries(example_pi ${WIRINGPI_LIBRARIES})
 
-add_executable(demo_pi src/demo_pi.c)
-target_link_libraries(demo_pi client )
+if(NOT WIRINGPI_LIBRARIES)
+    message("wiringpi library not found. Not building raspberry pi client programs.")
+else()
+    add_executable(example_pi src/example_pi.c)
+    target_link_libraries(example_pi client )
+    target_link_libraries(example_pi ${WIRINGPI_LIBRARIES})
 
-find_library(WIRINGPI_LIBRARIES NAMES wiringPi)
-target_link_libraries(demo_pi ${WIRINGPI_LIBRARIES})
-target_link_libraries(demo_pi m)
+    add_executable(demo_pi src/demo_pi.c)
+    target_link_libraries(demo_pi client )
+
+    find_library(WIRINGPI_LIBRARIES NAMES wiringPi)
+    target_link_libraries(demo_pi ${WIRINGPI_LIBRARIES})
+    target_link_libraries(demo_pi m)
+endif()
