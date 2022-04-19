@@ -132,6 +132,21 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
 
         use message::MessageInner::*;
         match message.inner {
+            Heartbeat { is_reply } => {
+                if is_reply {
+                    // This is a heartbeat that we initiated
+                } else {
+                    // This is a heartbeat that the server initiated, so reply to it
+                    let reply = Message::new(
+                        Heartbeat { is_reply: true }
+                    );
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
+                }
+            }
             Reset {} => {
                 // Reset to safe state, if client has a reset function
                 if let Some(reset) = handle.reset {

@@ -141,6 +141,10 @@ pub enum MessageInner {
         machine: String,
         stream: String,
     } = "stream_descriptor",
+    /// Message to/from the server representing a keepalive/"heartbeat" request/reply
+    Heartbeat {
+        is_reply: bool,
+    } = "heartbeat",
     /// TODO
     Other { data: Box<RawValue> } = "other",
 }
@@ -308,6 +312,9 @@ lazy_static::lazy_static! {
         make_inner_deserializer!(StreamDescription "stream_descriptor" (
             machine "machine" "string name of this machine" String,
             stream  "stream"  "string name of this stream"  String,
+        ));
+        make_inner_deserializer!(Heartbeat "heartbeat" (
+            is_reply "is_reply" "boolean indicating if this is a heartbeat request (false) or reply (true)" bool,
         ));
         map
     };
