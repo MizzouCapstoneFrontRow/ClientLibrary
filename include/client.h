@@ -189,6 +189,13 @@ enum ErrorCode ConnectToServer(
 enum ErrorCode LibraryUpdate(ClientHandle);
 
 /**
+* Returns (in *result) the number of milliseconds since the last message from the server was handled.
+* If no messages have yet been received, returns -1 in *result.
+* May also return -1 spuriously if the platforms monotonic clock is not actually monotonic.
+*/
+enum ErrorCode MillisecondsSinceLastMessage(ClientHandle, signed long *result);
+
+/**
 * Deinitialize and shut down the library.
 */
 void ShutdownLibrary(ClientHandle);

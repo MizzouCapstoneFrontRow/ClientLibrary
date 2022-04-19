@@ -201,6 +201,11 @@ int main() {
     //for (int i = 0; i < 10; ++i) {
     while(true) {
         sleep(1);
+        long millis;
+        printf("time since last msg\n");
+        result = MillisecondsSinceLastMessage(handle, &millis);
+        printf("result: %d, time: %ld\n", (int)result, millis);
+
 
         printf("updating\n");
         result = LibraryUpdate(handle);

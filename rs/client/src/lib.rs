@@ -14,6 +14,7 @@ pub type RawFd = libc::c_int;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
+use std::time::Instant;
 use std::{
     ffi::CStr,
     ptr::NonNull,
@@ -47,6 +48,7 @@ pub struct ConnectedClient {
     write_connection: std::net::TcpStream,
     stream_flag: Arc<AtomicBool>,
     stream_threads: Vec<JoinHandle<()>>,
+    last_message_received_time: Option<Instant>,
 }
 
 pub enum ClientHandle {
@@ -127,6 +129,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                 return MessageReadError;
             },
         };
+        handle.last_message_received_time = Some(Instant::now());
 
         use message::MessageInner::*;
         match message.inner {
@@ -311,7 +314,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
         }
         
     }
-    
+
     NoError
 }
 
@@ -583,6 +586,7 @@ pub extern "C" fn ConnectToServer(
         read_connection,
         stream_flag,
         stream_threads: vec![], // Will be set later
+        last_message_received_time: None,
     });
     let handle = match handle_ { Connected(c) => c, _ => unreachable!() };
 
@@ -679,5 +683,28 @@ pub extern "C" fn ConnectToServer(
         handle.stream_threads = stream_threads;
     }
 
+    NoError
+}
+
+#[no_mangle]
+pub extern "C" fn MillisecondsSinceLastMessage(
+    handle: Option<&mut ClientHandle>,
+    result_ptr: Option<&mut libc::c_long>,
+) -> ErrorCode {
+    shadow_or_return!(handle, InvalidHandle, with_message "Error checking time since the last message: Invalid handle (null)");
+    shadow_or_return!(result_ptr, NullParameter, with_message "Error checking time since the last message: Invalid result pointer (null)");
+    let handle = unwrap_or_return!(
+        handle.as_connected_mut(),
+        AlreadyConnected,
+        with_message "Error checking time since the last message: not yet connected",
+    );
+
+    *result_ptr = -1;
+    if let Some(time) = handle.last_message_received_time {
+        let now = Instant::now();
+        if let Some(time_difference) = now.checked_duration_since(time) {
+            *result_ptr = time_difference.as_millis().try_into().unwrap_or(libc::c_long::MAX)
+        }
+    };
     NoError
 }
