@@ -127,8 +127,6 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                 return MessageReadError;
             },
         };
-        eprintln!("TODO: handle I/O errors in LibraryUpdate");
-        dbg!(&message);
 
         use message::MessageInner::*;
         match message.inner {
@@ -155,16 +153,37 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
             },
             FunctionCall { name, parameters } => {
                 if let Some(function) = handle.functions.get(&name) {
-                    let result = function.call(&parameters).unwrap(); // TODO: error handle instead of unwrap
-                    dbg!(&result);
+                    let result = match function.call(&parameters) {
+                        Ok(result) => result,
+                        Err(err) => {
+                            eprintln!("Error calling function: {:?}", err);
+                            let reply = Message::new(
+                                UnsupportedOperation {
+                                    reply_to: message.message_id,
+                                    operation: name,
+                                    reason: format!("{:?}", err),
+                                }
+                            );
+                            unwrap_or_return!(
+                                try_write_message(&handle.write_connection, &reply),
+                                MessageWriteError,
+                                with_message(e) "Error sending message: {:?}", e
+                            );
+                            return OtherError;
+                        }
+                    };
+
                     let reply = Message::new(
                         FunctionReturn {
                             reply_to: message.message_id,
                             returns: result,
                         },
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 } else {
                     let reply = Message::new(
                         UnsupportedOperation {
@@ -173,21 +192,44 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                             reason: "unrecognized function".to_owned(),
                         }
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 }
             },
             AxisChange { name, value } => {
                 if let Some(axis) = handle.axes.get(&name) {
-                    let result = axis.call(value).unwrap(); // TODO: error handle instead of unwrap
-                    dbg!(&result);
+                    let result = match axis.call(value) {
+                        Ok(result) => result,
+                        Err(err) => {
+                            eprintln!("Error changing axis: {:?}", err);
+                            let reply = Message::new(
+                                UnsupportedOperation {
+                                    reply_to: message.message_id,
+                                    operation: name,
+                                    reason: format!("{:?}", err),
+                                }
+                            );
+                            unwrap_or_return!(
+                                try_write_message(&handle.write_connection, &reply),
+                                MessageWriteError,
+                                with_message(e) "Error sending message: {:?}", e
+                            );
+                            return OtherError;
+                        }
+                    };
                     let reply = Message::new(
                         AxisReturn {
                             reply_to: message.message_id,
                         },
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 } else {
                     let reply = Message::new(
                         UnsupportedOperation {
@@ -196,22 +238,46 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                             reason: "unrecognized axis".to_owned(),
                         }
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 }
             },
             SensorRead { name } => {
-                if let Some(axis) = handle.sensors.get(&name) {
-                    let result = axis.call().unwrap(); // TODO: error handle instead of unwrap
-                    dbg!(&result);
+                if let Some(sensor) = handle.sensors.get(&name) {
+                    let result = match sensor.call() {
+                        Ok(result) => result,
+                        Err(err) => {
+                            eprintln!("Error reading sensor: {:?}", err);
+                            let reply = Message::new(
+                                UnsupportedOperation {
+                                    reply_to: message.message_id,
+                                    operation: name,
+                                    reason: format!("{:?}", err),
+                                }
+                            );
+                            unwrap_or_return!(
+                                try_write_message(&handle.write_connection, &reply),
+                                MessageWriteError,
+                                with_message(e) "Error sending message: {:?}", e
+                            );
+                            return OtherError;
+                        }
+                    };
+
                     let reply = Message::new(
                         SensorReturn {
                             reply_to: message.message_id,
                             value: result,
                         },
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 } else {
                     let reply = Message::new(
                         UnsupportedOperation {
@@ -220,48 +286,32 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                             reason: "unrecognized sensor".to_owned(),
                         }
                     );
-                    let result = try_write_message(&handle.write_connection, &reply);// TODO: error handle
-                    dbg!(result);
+                    unwrap_or_return!(
+                        try_write_message(&handle.write_connection, &reply),
+                        MessageWriteError,
+                        with_message(e) "Error sending message: {:?}", e
+                    );
                 }
             },
-            _ => {todo!()},
+            message_inner => {
+                let reply = Message::new(
+                    UnsupportedOperation {
+                        reply_to: message.message_id,
+                        operation: format!("{:?}", message_inner),
+                        reason: "unsupported message type received by machine".to_owned(),
+                    }
+                );
+                unwrap_or_return!(
+                    try_write_message(&handle.write_connection, &reply),
+                    MessageWriteError,
+                    with_message(e) "Error sending message: {:?}", e
+                );
+                return OtherError;
+            },
         }
         
     }
-
-//    let handle = unwrap_or_return!(handle.as_unconnected_mut(), false);
-//    eprintln!("TODO: LibraryUpdate");
-//
-//    let result = handle.functions.get("print").unwrap().call(serde_json::from_str(
-//        r#"{ "name": "Zachary" }"#
-//    ).unwrap()).unwrap();
-//    dbg!(serde_json::to_string(&result));
-//
-//
-//    let result = handle.functions.get("multiply").unwrap().call(serde_json::from_str(
-//        r#"{ "x": 4, "y": 5}"#
-//    ).unwrap()).unwrap();
-//    dbg!(serde_json::to_string(&result));
-//
-//
-//    let result = handle.functions.get("average").unwrap().call(serde_json::from_str(
-//        r#"{ "x": [1, 2, 3, 4, 5, 20]}"#
-//    ).unwrap()).unwrap();
-//    dbg!(serde_json::to_string(&result));
-//
-//
-//    let result = handle.functions.get("sequence").unwrap().call(serde_json::from_str(
-//        r#"{ "n": 20}"#
-//    ).unwrap()).unwrap();
-//    dbg!(serde_json::to_string(&result));
-//
-//
-//    let result = handle.functions.get("count_bools").unwrap().call(serde_json::from_str(
-//        r#"{ "values": [true, true, false, true, false]}"#
-//    ).unwrap()).unwrap();
-//    dbg!(serde_json::to_string(&result));
-
-
+    
     NoError
 }
 

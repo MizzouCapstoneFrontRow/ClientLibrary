@@ -63,7 +63,10 @@ enum ErrorCode {
     /// Failed to connect because a required value (e.g. name) was not set.
     MissingRequiredValue = 14,
     /// Error connecting to server.
-    ConnectionError = 15
+    ConnectionError = 15,
+    /// Other error (nonfatal) e.g. server sent a FunctionCall with invalid parameters
+    /// or a message that should never be sent to machine (e.g. AxisReturn)
+    Other = 16
 };
 
 /**

@@ -37,4 +37,7 @@ pub enum ErrorCode {
     MissingRequiredValue = 14,
     /// Error connecting to server.
     ConnectionError = 15,
+    /// Other error (nonfatal), e.g. server sent a FunctionCall with invalid parameters,
+    /// or a message that should never be sent to machine (e.g. AxisReturn)
+    OtherError = 16,
 }
