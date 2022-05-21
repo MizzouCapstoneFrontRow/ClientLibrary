@@ -199,7 +199,7 @@ int main() {
     printf("result: %d\n", (int)result);
 
     //for (int i = 0; i < 10; ++i) {
-    while(true) {
+    while(result == NoError) {
         sleep(1);
         long millis;
         printf("time since last msg\n");

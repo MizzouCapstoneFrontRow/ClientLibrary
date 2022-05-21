@@ -44,7 +44,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
@@ -62,7 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
@@ -77,14 +81,18 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
@@ -100,7 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
@@ -116,7 +126,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     try_write_message(&write_stream, &msg)?;
     let reply = loop {
         if let Some(reply) = try_read_message(&mut read_stream, Some(std::time::Duration::from_secs(0))).transpose() {
-            break reply;
+            if !matches!(reply, Ok(Message { inner: MessageInner::Heartbeat { .. }, ..})) {
+                break reply;
+            }
         }
     };
     dbg!(&reply);
@@ -124,6 +136,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let msg = Message::new(
         MessageInner::Reset {destination: machine.clone()},
+    );
+    dbg!(&msg);
+    try_write_message(&write_stream, &msg)?;
+    // No reply expected
+
+
+    let msg = Message::new(
+        MessageInner::Disconnect {},
     );
     dbg!(&msg);
     try_write_message(&write_stream, &msg)?;
