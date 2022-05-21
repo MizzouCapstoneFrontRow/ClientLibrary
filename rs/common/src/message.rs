@@ -7,7 +7,7 @@ use serde_json::value::{RawValue, to_raw_value};
 use polling::{Poller, Event};
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub message_id: i64,
     pub inner: MessageInner,
@@ -24,13 +24,31 @@ impl Message {
 }
 
 /// This macro takes in the MessageInner enum definition, annotated with the message_type json value for each variant,
-/// and produces the enum definition, and implements serialization for the Message type based on the variants.
-macro_rules! message_inner_enum_with_name {
+/// and produces the enum definition, and implements serialization and deserialization for the Message type based on the variants,
+/// as well as adding some helper functions.
+/// This macro takes in deserialization description for a message type, and adds a deserializer for that message type
+/// to the MESSAGE_INNER_DESERIALIZERS map.
+/// The message type variant is are first, followed by (in braces) a comma-separated list of field descriptions, where
+/// a field description is:
+/// * the name of the field in the variant AND the json (must be the same),
+/// * the type of the field in the variant
+/// * a description of the field (used for error reporting when a field is not found).
+/// After the braces are the serialized "message_type" value, whether or not a reply is expected,
+/// and (if it exists) the variant field that contains the message_id of the message this message is a reply to
+macro_rules! message_inner_enum_with_metadata {
     (
+        no_reply: $no_reply:ident,
+        expects_reply: $expects_reply:ident,
+        reply_to: $reply_to:ident,
         outer: $outer:ident
         $( #[$($meta:tt)*] )?
         $vis:vis enum $name:ident {
-            $( $(#[$($variant_meta:tt)*])* $variant:ident { $( $field:ident : $field_ty:ty ),* $(,)? } = $variant_str:literal, )* $(,)?
+            $(
+                $(#[$($variant_meta:tt)*])*
+                $variant:ident {
+                    $( $field:ident : $field_ty:ty : $field_desc:literal ),* $(,)?
+                } = $variant_str:literal $variant_expects_reply:ident,
+            )* $(,)?
         }
     ) => {
         $( #[$($meta)*] )?
@@ -39,11 +57,47 @@ macro_rules! message_inner_enum_with_name {
         }
         impl $name {
             /// Function to get the message_type of a MessageInner.
+            /// Internal use only (for serialization)
             fn variant_name(&self) -> &'static str {
                 use $name::*;
                 match self {
                     $( $variant { .. } => $variant_str ),*
                 }
+            }
+            /// Does this message expect a reply? I.e. should the server
+            /// keep track of its message_id to forward a reply back?
+            fn expects_reply(&self) -> bool {
+                use $name::*;
+                let $no_reply = false;
+                let $expects_reply = true;
+                match self {
+                    $( $variant { .. } => $variant_expects_reply ),*
+                }
+            }
+            /// What message is this message a reply to?
+            /// None if this message is not a reply
+            pub fn reply_to(&self) -> Option<i64> {
+                use $name::*;
+                let $reply_to = &None::<i64>;
+                match self {
+                    $( $variant { $($field),* } => {
+                        // If this variant has reply_to, .into() will be i64 -> Option<i64>
+                        // else it will use the above local variable, and .into() will be a no-op
+                        (*$reply_to).into()
+                    } ),*
+                }
+            }
+        }
+        impl $outer {
+            /// Does this message expect a reply? I.e. should the server
+            /// keep track of its message_id to forward a reply back?
+            pub fn expects_reply(&self) -> bool {
+                self.inner.expects_reply()
+            }
+            /// What message is this message a reply to?
+            /// None if this message is not a reply
+            pub fn reply_to(&self) -> Option<i64> {
+                self.inner.reply_to()
             }
         }
         /// Array of all recognized message_type values.
@@ -82,81 +136,136 @@ macro_rules! message_inner_enum_with_name {
                 }
             }
         }
+
+        lazy_static::lazy_static! {
+            /// This map contains functions that finish deserializing a message, after it's message type and message id have been determined.
+            /// The message_type is used as the key in this map, and the message_id is passed in as a parameter.
+            static ref MESSAGE_INNER_DESERIALIZERS: HashMap<
+                &'static str,
+                for<'a> fn(message_id: i64, json: HashMap<&'a str, &'a RawValue>) -> Result<Message, DeserializeError>,
+            > = {
+                use serde::de::*;
+                let mut map = HashMap::<
+                    &'static str,
+                    for<'a> fn(message_id: i64, json: HashMap<&'a str, &'a RawValue>) -> Result<Message, DeserializeError>,
+                >::new();
+
+                $(
+                    {
+                        #[allow(unused_mut)] // (If the message has no fields, then rustc warns that json doesn't need to be mutable)
+                        map.insert( $variant_str , |message_id: i64, mut json: HashMap<&str, &RawValue>| {
+                            // For each field in this message type
+                            $(
+                                // Get the field from the json, erroring if it does not exist.
+                                let $field = json.remove(stringify!($field))
+                                    .ok_or_else(|| DeserializeError::MissingField(stringify!($field)))?;
+                                // Make a local variable with the name of the field.
+                                // Deserialize the field into that variable.
+                                let $field = serde_json::from_str::<$field_ty>($field.get())
+                                    .map_err(|_| DeserializeError::InvalidType(
+                                        Unexpected::Other("TODO: unknown"),
+                                        & $field_desc,
+                                    ))?;
+                            )*
+                            // After all fields have been read, ensure that no unrecognized fields are left. If so, error.
+                            if let Some((field, _value)) = json.into_iter().next() {
+                                Err(DeserializeError::UnknownField(
+                                    field.to_owned().into(),
+                                    &["message_id", "message_type", $( stringify!($field) ),*],
+                                ))?;
+                            }
+                            // Return a message with the given message id, and this variant message type, with all fields included.
+                            Ok(Message {
+                                message_id,
+                                inner: MessageInner::$variant { $( $field ),* },
+                            })
+                        });
+                    }
+                )*
+                map
+            };
+        }
+
+
     };
 }
-message_inner_enum_with_name!{
+
+message_inner_enum_with_metadata!{
+no_reply: no_reply,
+expects_reply: expects_reply,
+reply_to: reply_to,
 outer: Message
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MessageInner {
     /// Machine description. Initial message sent to server.
     /// Contains the name of the client, and the functions, sensors, axes, and streams it supports (by name).
     MachineDescription {
-        name: String,
-        functions: HashMap<String, Function>,
-        sensors: HashMap<String, Sensor>,
-        axes: HashMap<String, Axis>,
-        streams: HashMap<String, Stream>,
-    } = "machine_description",
+        name: String: "the name of the machine",
+        functions: HashMap<String, Function>: "function names and descriptors",
+        sensors: HashMap<String, Sensor>: "sensor names and descriptors",
+        axes: HashMap<String, Axis>: "axis names and descriptors",
+        streams: HashMap<String, Stream>: "stream names and descriptors",
+    } = "machine_description" no_reply,
     /// Message from the server representing a request to call a function.
     FunctionCall {
-        name: String,
-        parameters: HashMap<String, Box<RawValue>>,
-    } = "function_call",
+        name: String: "the name of the function",
+        parameters: HashMap<String, Box<RawValue>>: "function parameters",
+    } = "function_call" expects_reply,
     /// Message to the server representing a reply to a function call with the results.
     FunctionReturn {
-        reply_to: i64,
-        returns: HashMap<String, Box<RawValue>>,
-    } = "function_return",
+        reply_to: i64: "message_id of the message this is a return of",
+        returns: HashMap<String, Box<RawValue>>: "function returns",
+    } = "function_return" no_reply,
     /// Message from the server representing a request to read a sensor.
     SensorRead {
-        name: String,
-    } = "sensor_read",
+        name: String: "the name of the sensor",
+    } = "sensor_read" expects_reply,
     /// Message to the server representing a reply to a sensor read with the value.
     SensorReturn {
-        reply_to: i64,
-        value: Box<RawValue>,
-    } = "sensor_return",
+        reply_to: i64: "message_id of the message this is a return of",
+        value: Box<RawValue>: "the value of the sensor",
+    } = "sensor_return" no_reply,
     /// Message from the server representing a request to change an axis.
     AxisChange {
-        name: String,
-        value: f64,
-    } = "axis_change",
+        name: String: "the name of the axis",
+        value: f64: "the value of the axis",
+    } = "axis_change" expects_reply,
     /// Message to the server representing a reply to an axis change.
     AxisReturn {
-        reply_to: i64,
-    } = "axis_return",
+        reply_to: i64: "message_id of the message this is a return of",
+    } = "axis_return" no_reply,
     /// Message to/from the server representing that a previous message was unrecognized or unsupported for some reason.
     UnsupportedOperation {
-        reply_to: i64,
-        operation: String,
-        reason: String
-    } = "unsupported_operation",
+        reply_to: i64: "message_id of the message this is a return of",
+        operation: String: "the operation that was unsupported",
+        reason: String: "why the operation was unsupported"
+    } = "unsupported_operation" no_reply,
     /// Message from the server representing that the client should reset to a safe state
     /// (e.g. because unity has disconnected).
-    Reset {} = "reset",
+    Reset {} = "reset" no_reply,
     /// Message to/from the server representing that the sender has disconnected.
-    Disconnect {} = "disconnect",
+    Disconnect {} = "disconnect" no_reply,
     /// Message to the server on a stream connection to identify the stream
     StreamDescription {
-        machine: String,
-        stream: String,
-    } = "stream_descriptor",
+        machine: String: "the name of the machine",
+        stream: String: "the name of the stream",
+    } = "stream_descriptor" no_reply,
     /// Message to/from the server representing a keepalive/"heartbeat" request/reply
     Heartbeat {
-        is_reply: bool,
-    } = "heartbeat",
+        is_reply: bool: "is this heartbeat a reply",
+    } = "heartbeat" no_reply,
     /// TODO
-    Other { data: Box<RawValue> } = "other",
+    Other { data: Box<RawValue>: "data" } = "other" no_reply,
 }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Function {
     pub parameters: HashMap<String, String>,
     pub returns: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sensor {
     #[serde(rename = "type")]
     pub output_type: String,
@@ -166,7 +275,7 @@ pub struct Sensor {
     pub max: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Axis {
     #[serde(rename = "type")]
     pub input_type: String,
@@ -181,7 +290,7 @@ pub struct Axis {
 }
 
 // TODO
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stream {
     pub format: String,
 }
@@ -210,114 +319,6 @@ impl DeserializeError {
             DuplicateField(f) => E::duplicate_field(f),
         }
     }
-}
-
-
-lazy_static::lazy_static! {
-    /// This map contains functions that finish deserializing a message, after it's message type and message id have been determined.
-    /// The message_type is used as the key in this map, and the message_id is passed in as a parameter.
-    static ref MESSAGE_INNER_DESERIALIZERS: HashMap<
-        &'static str,
-        for<'a> fn(message_id: i64, json: HashMap<&'a str, &'a RawValue>) -> Result<Message, DeserializeError>,
-    > = {
-        use serde::de::*;
-        let mut map = HashMap::<
-            &'static str,
-            for<'a> fn(message_id: i64, json: HashMap<&'a str, &'a RawValue>) -> Result<Message, DeserializeError>,
-        >::new();
-        /// This macro takes in deserialization description for a message type, and adds a deserializer for that message type
-        /// to the MESSAGE_INNER_DESERIALIZERS map.
-        /// The message type variant and serialized "message_type" value are first, followed by (in parentheses)
-        /// a comma-separated list of field descriptions.
-        /// A field description is:
-        /// * the name of the field in the variant,
-        /// * the name of the field in the json,
-        /// * a description of the field (used for error reporting when a field is not found)
-        /// * the type of the field in the variant.
-        macro_rules! make_inner_deserializer {
-            (
-                $variant:ident $variant_str:literal ( $( $field:ident $field_str:literal $field_desc:literal $field_ty:ty),* $(,)?)
-            ) => {
-                #[allow(unused_mut)] // (If the message has no fields, then rustc warns that json doesn't need to be mutable)
-                map.insert( $variant_str , |message_id: i64, mut json: HashMap<&str, &RawValue>| {
-                    // For each field in this message type
-                    $(
-                        // Get the field from the json, erroring if it does not exist.
-                        let $field = json.remove($field_str)
-                            .ok_or_else(|| DeserializeError::MissingField($field_str))?;
-                        // Make a local variable with the name of the field.
-                        // Deserialize the field into that variable.
-                        let $field = serde_json::from_str::<$field_ty>($field.get())
-                            .map_err(|_| DeserializeError::InvalidType(
-                                Unexpected::Other("TODO: unknown"),
-                                & $field_desc,
-                            ))?;
-                    )*
-                    // After all fields have been read, ensure that no unrecognized fields are left. If so, error.
-                    if let Some((field, _value)) = json.into_iter().next() {
-                        Err(DeserializeError::UnknownField(
-                            field.to_owned().into(),
-                            &["message_id", "message_type", $( $field_str ),*],
-                        ))?;
-                    }
-                    // Return a message with the given message id, and this variant message type, with all fields included.
-                    Ok(Message {
-                        message_id,
-                        inner: MessageInner::$variant { $( $field ),* },
-                    })
-                });
-            }
-        }
-        make_inner_deserializer!(MachineDescription "machine_description" (
-            name        "name"      "a string"              String,
-            functions   "functions" "function descriptors"  HashMap<String, Function>,
-            sensors     "sensors"   "sensor descriptors"    HashMap<String, Sensor>,
-            axes        "axes"      "axis descriptors"      HashMap<String, Axis>,
-            streams     "streams"   "stream descriptors"    HashMap<String, Stream>,
-        ));
-        make_inner_deserializer!(FunctionCall "function_call" (
-            name        "name"          "a string"              String,
-            parameters  "parameters"    "function parameters"   HashMap<String, Box<RawValue>>,
-        ));
-        make_inner_deserializer!(FunctionReturn "function_return" (
-            reply_to "reply_to" "a positive integer" i64,
-            returns  "returns"  "function returns"   HashMap<String, Box<RawValue>>,
-        ));
-        make_inner_deserializer!(SensorRead "sensor_read" (
-            name        "name"          "a string"              String,
-        ));
-        make_inner_deserializer!(SensorReturn "sensor_return" (
-            reply_to "reply_to" "a positive integer" i64,
-            value    "value"    "sensor value"       Box<RawValue>,
-        ));
-        make_inner_deserializer!(AxisChange "axis_change" (
-            name     "name"     "a string"     String,
-            value    "value"    "axis value"   f64,
-        ));
-        make_inner_deserializer!(AxisReturn "axis_return" (
-            reply_to "reply_to" "a positive integer" i64,
-        ));
-        make_inner_deserializer!(UnsupportedOperation "unsupported_operation" (
-            reply_to    "reply_to"  "a positive integer" i64,
-            operation   "operation" "a string"           String,
-            reason      "reason"    "a string"           String,
-        ));
-        make_inner_deserializer!(Other "other" (
-            data "data" "json data" Box<RawValue>,
-        ));
-        make_inner_deserializer!(Reset "reset" (
-        ));
-        make_inner_deserializer!(Disconnect "disconnect" (
-        ));
-        make_inner_deserializer!(StreamDescription "stream_descriptor" (
-            machine "machine" "string name of this machine" String,
-            stream  "stream"  "string name of this stream"  String,
-        ));
-        make_inner_deserializer!(Heartbeat "heartbeat" (
-            is_reply "is_reply" "boolean indicating if this is a heartbeat request (false) or reply (true)" bool,
-        ));
-        map
-    };
 }
 
 impl<'de> serde::de::Deserialize<'de> for Message {
