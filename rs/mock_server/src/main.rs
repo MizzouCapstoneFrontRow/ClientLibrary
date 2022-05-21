@@ -67,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::FunctionCall {
+                    destination: name.clone(),
                     name: "count_bools".to_owned(),
                     parameters: HashMap::<String, Box<RawValue>>::from([
                         ("values".to_owned(), to_raw_value(&[true, true, false, true, false])?),
@@ -84,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::FunctionCall {
+                    destination: name.clone(),
                     name: "average".to_owned(),
                     parameters: HashMap::<String, Box<RawValue>>::from([
                         ("x".to_owned(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
@@ -101,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::SensorRead {
+                    destination: name.clone(),
                     name: "count".to_owned(),
                 },
             );
@@ -122,6 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::AxisChange {
+                    destination: name.clone(),
                     name: "example".to_owned(),
                     value: 6.0,
                 },
@@ -137,6 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::AxisChange {
+                    destination: name.clone(),
                     name: "example".to_owned(),
                     value: 42.0,
                 },
@@ -152,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
 
             let msg = Message::new(
-                MessageInner::Reset {},
+                MessageInner::Reset {destination: name.clone()},
             );
             dbg!(&msg);
             try_write_message(&write_stream, &msg)?;

@@ -40,6 +40,7 @@ macro_rules! message_inner_enum_with_metadata {
         no_reply: $no_reply:ident,
         expects_reply: $expects_reply:ident,
         reply_to: $reply_to:ident,
+        destination: $destination:ident,
         outer: $outer:ident
         $( #[$($meta:tt)*] )?
         $vis:vis enum $name:ident {
@@ -76,7 +77,8 @@ macro_rules! message_inner_enum_with_metadata {
             }
             /// What message is this message a reply to?
             /// None if this message is not a reply
-            pub fn reply_to(&self) -> Option<i64> {
+            #[allow(unused_variables)]
+            fn reply_to(&self) -> Option<i64> {
                 use $name::*;
                 let $reply_to = &None::<i64>;
                 match self {
@@ -84,6 +86,32 @@ macro_rules! message_inner_enum_with_metadata {
                         // If this variant has reply_to, .into() will be i64 -> Option<i64>
                         // else it will use the above local variable, and .into() will be a no-op
                         (*$reply_to).into()
+                    } ),*
+                }
+            }
+            /// What is the intended destination machine for this message?
+            /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
+            fn destination(&self) -> Option<&str> {
+                use $name::*;
+                let $destination = &();
+                trait Helper {
+                    fn to_opt_str_ref(&self) -> Option<&str>;
+                }
+                impl Helper for String {
+                    fn to_opt_str_ref(&self) -> Option<&str> {
+                        Some(&self)
+                    }
+                }
+                impl Helper for () {
+                    fn to_opt_str_ref(&self) -> Option<&str> {
+                        None
+                    }
+                }
+                match self {
+                    $( $variant { $($field),* } => {
+                        // If this variant has destination, .into() will be &str -> Option<&str>
+                        // else it will use the above local variable, and .into() will be a no-op
+                        $destination.to_opt_str_ref()
                     } ),*
                 }
             }
@@ -98,6 +126,11 @@ macro_rules! message_inner_enum_with_metadata {
             /// None if this message is not a reply
             pub fn reply_to(&self) -> Option<i64> {
                 self.inner.reply_to()
+            }
+            /// What is the intended destination machine for this message?
+            /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
+            pub fn destination(&self) -> Option<&str> {
+                self.inner.destination()
             }
         }
         /// Array of all recognized message_type values.
@@ -194,6 +227,7 @@ message_inner_enum_with_metadata!{
 no_reply: no_reply,
 expects_reply: expects_reply,
 reply_to: reply_to,
+destination: destination,
 outer: Message
 #[derive(Debug, Clone)]
 pub enum MessageInner {
@@ -208,6 +242,7 @@ pub enum MessageInner {
     } = "machine_description" no_reply,
     /// Message from the server representing a request to call a function.
     FunctionCall {
+        destination: String: "the machine the function is called on",
         name: String: "the name of the function",
         parameters: HashMap<String, Box<RawValue>>: "function parameters",
     } = "function_call" expects_reply,
@@ -218,6 +253,7 @@ pub enum MessageInner {
     } = "function_return" no_reply,
     /// Message from the server representing a request to read a sensor.
     SensorRead {
+        destination: String: "the machine the sensor is called on",
         name: String: "the name of the sensor",
     } = "sensor_read" expects_reply,
     /// Message to the server representing a reply to a sensor read with the value.
@@ -227,6 +263,7 @@ pub enum MessageInner {
     } = "sensor_return" no_reply,
     /// Message from the server representing a request to change an axis.
     AxisChange {
+        destination: String: "the machine the axis is called on",
         name: String: "the name of the axis",
         value: f64: "the value of the axis",
     } = "axis_change" expects_reply,
@@ -242,7 +279,9 @@ pub enum MessageInner {
     } = "unsupported_operation" no_reply,
     /// Message from the server representing that the client should reset to a safe state
     /// (e.g. because unity has disconnected).
-    Reset {} = "reset" no_reply,
+    Reset {
+        destination: String: "the machine the reset is requested on",
+    } = "reset" no_reply,
     /// Message to/from the server representing that the sender has disconnected.
     Disconnect {} = "disconnect" no_reply,
     /// Message to the server on a stream connection to identify the stream

@@ -148,13 +148,13 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                     );
                 }
             }
-            Reset {} => {
+            Reset { .. } => {
                 // Reset to safe state, if client has a reset function
                 if let Some(reset) = handle.reset {
                     unsafe { reset(); }
                 }
             },
-            FunctionCall { name, parameters } => {
+            FunctionCall { name, parameters, .. } => {
                 if let Some(function) = handle.functions.get(&name) {
                     let result = match function.call(&parameters) {
                         Ok(result) => result,
@@ -202,7 +202,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                     );
                 }
             },
-            AxisChange { name, value } => {
+            AxisChange { name, value, .. } => {
                 if let Some(axis) = handle.axes.get(&name) {
                     let result = match axis.call(value) {
                         Ok(result) => result,
@@ -248,7 +248,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                     );
                 }
             },
-            SensorRead { name } => {
+            SensorRead { name, .. } => {
                 if let Some(sensor) = handle.sensors.get(&name) {
                     let result = match sensor.call() {
                         Ok(result) => result,

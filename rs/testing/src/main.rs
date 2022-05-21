@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     dbg!(to_raw_value(&msg));
     let msg = Message{
         message_id: 4096,
-        inner: MessageInner::AxisChange { name: "xAxis".into(), value: 3.0 },
+        inner: MessageInner::AxisChange { destination: "machine name".to_owned(), name: "xAxis".into(), value: 3.0 },
     };
     dbg!(to_raw_value(&msg));
     let msg = Message{

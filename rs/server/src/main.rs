@@ -1,16 +1,13 @@
 use std::{collections::HashMap, sync::Arc, time::Duration, net::SocketAddr};
-use tokio::{net::{TcpListener, ToSocketAddrs, tcp::{OwnedReadHalf, OwnedWriteHalf}}, sync::{RwLock, mpsc::{Sender, Receiver}}, io::{BufReader, AsyncBufReadExt}, runtime::Handle};
+use tokio::{net::{TcpListener, ToSocketAddrs, tcp::{OwnedReadHalf, OwnedWriteHalf}}, sync::{RwLock, mpsc::{Sender, Receiver}}, io::{BufReader, AsyncBufReadExt, AsyncWriteExt}, runtime::Handle};
 //use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
-use common::message::*;
+use common::{message::*, unwrap_or_return};
 
 #[derive(Debug, Clone)]
 enum MessageSource {
     Machine(Arc<str>),
-    Environment {
-        environment: SocketAddr,
-        destination_machine: Option<Arc<str>>,
-    },
+    Environment(SocketAddr),
 }
 type MessageWithSource = (Message, MessageSource);
 
@@ -103,9 +100,10 @@ async fn machine_listener(state: Arc<ServerState>, machine_srv: TcpListener) -> 
                 eprintln!("Machine at {addr:?} tried to connect with a name that already exists: {name}");
                 continue;
             }
-            guard.insert(name, Arc::clone(&machine));
+            guard.insert(Arc::clone(&name), machine);
         }
-        tokio::spawn(machine_handler(machine, message_rx, state.message_handler_tx.clone(), rx, tx));
+        let source = MessageSource::Machine(name);
+        tokio::spawn(connection_handler(source, addr, message_rx, state.message_handler_tx.clone(), rx, tx));
     }
 }
 
@@ -144,12 +142,21 @@ async fn machine_stream_listener(state: Arc<ServerState>, machine_stream_srv: Tc
                 continue;
             }
         };
-        // Setup stream on a different task, so if it has to wait, it
+        // Setup stream on a different task, so if it has to wait, it doesn't block this task
+        eprintln!("TODO: connect machine streams");
     }
 }
 
-async fn machine_handler(machine: Arc<Machine>, message_rx: Receiver<Message>, message_handler_tx: Sender<MessageWithSource>, mut rx: BufReader<OwnedReadHalf>, mut tx: OwnedWriteHalf) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let machine_receive_handler = async move {
+async fn connection_handler(
+    source: MessageSource,
+    addr: SocketAddr,
+    mut message_rx: Receiver<Message>,
+    message_handler_tx: Sender<MessageWithSource>,
+    mut rx: BufReader<OwnedReadHalf>,
+    mut tx: OwnedWriteHalf
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+
+    let receive_handler = async move {
         let mut msg_buf = String::with_capacity(1024);
         loop {
             msg_buf.clear();
@@ -157,28 +164,55 @@ async fn machine_handler(machine: Arc<Machine>, message_rx: Receiver<Message>, m
 
             match result {
                 Ok(0) => {
-                    eprintln!("Machine at {addr:?} disconnected.", addr = machine.addr);
+                    eprintln!("Machine at {addr:?} disconnected.");
                     return Ok(());
                 }
                 Err(err) => {
-                    eprintln!("Error reading machine description at {addr:?}: {err:?}.", addr = machine.addr);
+                    eprintln!("Error reading message from {addr:?}: {err:?}.");
                     return Err(err);
                 }
                 Ok(_) => {}
             };
             let message = match serde_json::from_str::<Message>(&msg_buf) {
                 Err(err) => {
-                    eprintln!("Error parsing message from machine at {addr:?}: {err:?}.", addr = machine.addr);
+                    eprintln!("Error parsing message from {addr:?}: {err:?}.");
                     continue;
                 }
                 Ok(msg) => msg,
             };
-            message_handler_tx.send((message, MessageSource::Machine(Arc::clone(&machine.name)))).await;
+            message_handler_tx.send((message, source.clone())).await;
+        }
+    };
+
+    let send_handler = async move {
+        let mut msg_buf = Vec::<u8>::with_capacity(1024);
+        loop {
+            msg_buf.clear();
+            let msg = unwrap_or_return!(
+                message_rx.recv().await,
+                Ok(()),
+                with_message "Message sender was dropped (recv returned None)"
+            );
+            match serde_json::to_writer(&mut msg_buf, &msg) {
+                Ok(_) => {},
+                Err(err) => {
+                    eprintln!("Failed to encode message as JSON {err:?} ({msg:?})");
+                    continue;
+                }
+            }
+            match tx.write_all(&msg_buf).await {
+                Err(err) => {
+                    eprintln!("Error writing message to {addr:?}: {err:?}.");
+                    return Err(err);
+                }
+                Ok(_) => {}
+            }
         }
     };
 
     Ok(tokio::select! {
-        res = tokio::spawn(machine_receive_handler) => res??,
+        res = tokio::spawn(receive_handler) => res??,
+        res = tokio::spawn(send_handler) => res??,
     })
 }
 
@@ -186,7 +220,26 @@ async fn environment_listener(state: Arc<ServerState>, environment_srv: TcpListe
     loop {
         let (stream, addr) = environment_srv.accept().await?;
         eprintln!("New environment connection from {:?}", addr);
-        dbg!("TODO");
+        let (rx, tx) = stream.into_split();
+        
+        let rx = BufReader::new(rx);
+
+        let (message_tx, message_rx) = tokio::sync::mpsc::channel(16);
+        
+        let environment = Arc::new(Environment {
+            addr,
+            message_tx,
+        });
+        {
+            let mut guard = state.environments.write().await;
+            if guard.contains_key(&addr) {
+                eprintln!("Machine at {addr:?} tried to connect with an address that already exists: {addr}");
+                continue;
+            }
+            guard.insert(addr, environment);
+        }
+        let source = MessageSource::Environment(addr);
+        tokio::spawn(connection_handler(source, addr, message_rx, state.message_handler_tx.clone(), rx, tx));
     }
 }
 
@@ -197,8 +250,8 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
             Some((message, source)) => {
                 let destination = if let Some(destination) = message.reply_to().map(|id| reply_ids.remove(&id)).flatten() {
                     destination
-                } else if let MessageSource::Environment { destination_machine: Some(destination), .. } = &source {
-                    MessageSource::Machine(Arc::clone(destination))
+                } else if let Some(destination) = message.destination() {
+                    MessageSource::Machine(destination.into())
                 } else {
                     eprintln!("Got message I don't know what to do with ({message:?}, {source:?})");
                     continue;
@@ -215,7 +268,7 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
                         };
                         machine.message_tx.clone()
                     },
-                    MessageSource::Environment { environment, .. } => {
+                    MessageSource::Environment(environment) => {
                         let environments = state.environments.read().await;
                         let environment = match environments.get(&environment) {
                             Some(environment) => environment,
