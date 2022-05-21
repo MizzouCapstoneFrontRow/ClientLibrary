@@ -4,4 +4,6 @@ members = [
     "client",
     "mock_server",
     "testing",
+    "server",
+    "environment",
 ]
