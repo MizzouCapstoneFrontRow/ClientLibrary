@@ -1,3 +1,4 @@
+use crate::NodeType::{self, *};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
 use std::net::TcpStream;
@@ -34,7 +35,8 @@ impl Message {
 /// * the type of the field in the variant
 /// * a description of the field (used for error reporting when a field is not found).
 /// After the braces are the serialized "message_type" value, whether or not a reply is expected,
-/// and (if it exists) the variant field that contains the message_id of the message this message is a reply to
+/// and (if it exists) the variant field that contains the message_id of the message this message is a reply to,
+/// and the source node type and destination node type for the message
 macro_rules! message_inner_enum_with_metadata {
     (
         no_reply: $no_reply:ident,
@@ -48,7 +50,7 @@ macro_rules! message_inner_enum_with_metadata {
                 $(#[$($variant_meta:tt)*])*
                 $variant:ident {
                     $( $field:ident : $field_ty:ty : $field_desc:literal ),* $(,)?
-                } = $variant_str:literal $variant_expects_reply:ident,
+                } = $variant_str:literal $variant_expects_reply:ident ($source_node_type:ident => $dst_node_type:ident),
             )* $(,)?
         }
     ) => {
@@ -91,7 +93,7 @@ macro_rules! message_inner_enum_with_metadata {
             }
             /// What is the intended destination machine for this message?
             /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
-            fn destination(&self) -> Option<&str> {
+            fn destination_machine(&self) -> Option<&str> {
                 use $name::*;
                 let $destination = &();
                 trait Helper {
@@ -115,6 +117,15 @@ macro_rules! message_inner_enum_with_metadata {
                     } ),*
                 }
             }
+            /// What is supposed to send this message, and where to?
+            fn route(&self) -> (NodeType, NodeType) {
+                use $name::*;
+                match self {
+                    $( $variant { $($field),* } => {
+                        ($source_node_type, $dst_node_type)
+                    } ),*
+                }
+            }
         }
         impl $outer {
             /// Does this message expect a reply? I.e. should the server
@@ -128,9 +139,13 @@ macro_rules! message_inner_enum_with_metadata {
                 self.inner.reply_to()
             }
             /// What is the intended destination machine for this message?
-            /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
-            pub fn destination(&self) -> Option<&str> {
-                self.inner.destination()
+            /// None if this message type does not have a destiation machine, or it is implied (e.g. this is a reply).
+            pub fn destination_machine(&self) -> Option<&str> {
+                self.inner.destination_machine()
+            }
+            /// What is supposed to send this message, and where to?
+            pub fn route(&self) -> (NodeType, NodeType) {
+                self.inner.route()
             }
         }
         /// Array of all recognized message_type values.
@@ -239,62 +254,62 @@ pub enum MessageInner {
         sensors: HashMap<String, Sensor>: "sensor names and descriptors",
         axes: HashMap<String, Axis>: "axis names and descriptors",
         streams: HashMap<String, Stream>: "stream names and descriptors",
-    } = "machine_description" no_reply,
+    } = "machine_description" no_reply (Machine => Server),
     /// Message from the server representing a request to call a function.
     FunctionCall {
         destination: String: "the machine the function is called on",
         name: String: "the name of the function",
         parameters: HashMap<String, Box<RawValue>>: "function parameters",
-    } = "function_call" expects_reply,
+    } = "function_call" expects_reply (Environment => Machine),
     /// Message to the server representing a reply to a function call with the results.
     FunctionReturn {
         reply_to: i64: "message_id of the message this is a return of",
         returns: HashMap<String, Box<RawValue>>: "function returns",
-    } = "function_return" no_reply,
+    } = "function_return" no_reply (Machine => Environment),
     /// Message from the server representing a request to read a sensor.
     SensorRead {
         destination: String: "the machine the sensor is called on",
         name: String: "the name of the sensor",
-    } = "sensor_read" expects_reply,
+    } = "sensor_read" expects_reply (Environment => Machine),
     /// Message to the server representing a reply to a sensor read with the value.
     SensorReturn {
         reply_to: i64: "message_id of the message this is a return of",
         value: Box<RawValue>: "the value of the sensor",
-    } = "sensor_return" no_reply,
+    } = "sensor_return" no_reply (Machine => Environment),
     /// Message from the server representing a request to change an axis.
     AxisChange {
         destination: String: "the machine the axis is called on",
         name: String: "the name of the axis",
         value: f64: "the value of the axis",
-    } = "axis_change" expects_reply,
+    } = "axis_change" expects_reply (Environment => Machine),
     /// Message to the server representing a reply to an axis change.
     AxisReturn {
         reply_to: i64: "message_id of the message this is a return of",
-    } = "axis_return" no_reply,
+    } = "axis_return" no_reply (Machine => Environment),
     /// Message to/from the server representing that a previous message was unrecognized or unsupported for some reason.
     UnsupportedOperation {
         reply_to: i64: "message_id of the message this is a return of",
         operation: String: "the operation that was unsupported",
         reason: String: "why the operation was unsupported"
-    } = "unsupported_operation" no_reply,
+    } = "unsupported_operation" no_reply (Any => Any),
     /// Message from the server representing that the client should reset to a safe state
     /// (e.g. because unity has disconnected).
     Reset {
         destination: String: "the machine the reset is requested on",
-    } = "reset" no_reply,
+    } = "reset" no_reply (Environment => Machine),
     /// Message to/from the server representing that the sender has disconnected.
-    Disconnect {} = "disconnect" no_reply,
+    Disconnect {} = "disconnect" no_reply (Any => Any),
     /// Message to the server on a stream connection to identify the stream
     StreamDescription {
         machine: String: "the name of the machine",
         stream: String: "the name of the stream",
-    } = "stream_descriptor" no_reply,
+    } = "stream_descriptor" no_reply (Machine => Server),
     /// Message to/from the server representing a keepalive/"heartbeat" request/reply
     Heartbeat {
         is_reply: bool: "is this heartbeat a reply",
-    } = "heartbeat" no_reply,
+    } = "heartbeat" no_reply (Any => Any),
     /// TODO
-    Other { data: Box<RawValue>: "data" } = "other" no_reply,
+    Other { data: Box<RawValue>: "data" } = "other" no_reply (Any => Any),
 }
 }
 

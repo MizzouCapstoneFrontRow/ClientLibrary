@@ -247,16 +247,48 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
     let mut reply_ids: HashMap<i64, MessageSource> = HashMap::new();
     loop {
         match message_handler_rx.recv().await {
-            Some((message, source)) => {
-                let destination = if let Some(destination) = message.reply_to().map(|id| reply_ids.remove(&id)).flatten() {
-                    destination
-                } else if let Some(destination) = message.destination() {
+            Some((mut message, source)) => {
+                let destination = if let Some(destination) = message.reply_to() {
+                    match reply_ids.remove(&destination) {
+                        Some(destination) => destination,
+                        None => {
+                            eprintln!("Received reply for message with unrecognized id: {destination:?} ({message:?})");
+                            continue;
+                        }
+                    }
+                } else if let Some(destination) = message.destination_machine() {
                     MessageSource::Machine(destination.into())
                 } else {
-                    eprintln!("Got message I don't know what to do with ({message:?}, {source:?})");
-                    continue;
+                    use common::NodeType::*;
+                    match message.route() {
+                        (_, Server | Any) => match &mut message.inner {
+                            MessageInner::MachineDescription { .. } => {
+                                eprintln!("Received unexpected machine description from {source:?}");
+                                continue;
+                            }
+                            MessageInner::Disconnect {  } => todo!("Disconnect"),
+                            MessageInner::StreamDescription { .. } => {
+                                eprintln!("Received unexpected stream description from {source:?}");
+                                continue;
+                            }
+                            MessageInner::Heartbeat { is_reply } => {
+                                if *is_reply { eprintln!("Received heartbeat reply"); continue; }
+                                eprintln!("Received heartbeat request");
+                                *is_reply = true;
+                                source.clone() // Send heartbeat reply back to source
+                            },
+                            _ => {
+                                eprintln!("Got message I don't know what to do with from {source:?} ({message:?})");
+                                continue;
+                            }
+                        },
+                        _ => {
+                            eprintln!("Got message I don't know what to do with from {source:?} ({message:?})");
+                            continue;
+                        }
+                    }
                 };
-                let mut destination = match destination {
+                let destination = match destination {
                     MessageSource::Machine(machine) => {
                         let machines = state.machines.read().await;
                         let machine = match machines.get(&machine) {
