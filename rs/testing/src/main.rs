@@ -24,6 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             streams: HashMap::from(
                 [("test".into(), Stream{
                     format: "mjpeg".into(),
+                    buffer_method: BufferMethod::Frames,
                 })]
             ),
         },

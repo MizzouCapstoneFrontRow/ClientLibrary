@@ -621,7 +621,8 @@ pub extern "C" fn ConnectToServer(
             streams: handle.streams.iter().map(|(name, s)| {
                 let Stream { format, fd } = s;
                 let format = format.clone();
-                (name.clone(), message::Stream { format })
+                eprint!("TODO: buffer_method in C API");
+                (name.clone(), message::Stream { format, buffer_method: message::BufferMethod::NoDiscard })
             }).collect(),
         }
     );

@@ -289,10 +289,26 @@ pub struct Axis {
     pub group: String,
 }
 
-// TODO
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BufferMethod {
+    /// Buffer a certain number of frames, then discard
+    Frames,
+    /// Buffer a certain number of bytes, then discard
+    Bytes,
+    /// Do not discard any stream contents.
+    /// Implies that the stream may only be connected to once.
+    NoDiscard,
+}
+
+impl Default for BufferMethod {
+    fn default() -> Self { Self::NoDiscard }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stream {
     pub format: String,
+    #[serde(default)]
+    pub buffer_method: BufferMethod,
 }
 
 #[allow(dead_code)]
