@@ -95,27 +95,15 @@ macro_rules! message_inner_enum_with_metadata {
             /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
             fn destination_machine(&self) -> Option<&str> {
                 use $name::*;
-                let $destination = &();
-                trait Helper {
-                    fn to_opt_str_ref(&self) -> Option<&str>;
-                }
-                impl Helper for String {
-                    fn to_opt_str_ref(&self) -> Option<&str> {
-                        Some(&self)
-                    }
-                }
-                impl Helper for () {
-                    fn to_opt_str_ref(&self) -> Option<&str> {
-                        None
-                    }
-                }
+                let $destination = None::<&String>;
                 match self {
                     $( $variant { $($field),* } => {
-                        // If this variant has destination, .into() will be &str -> Option<&str>
+                        // If this variant has destination, .into() will be &String -> Option<&String>
                         // else it will use the above local variable, and .into() will be a no-op
-                        $destination.to_opt_str_ref()
+                        let r: Option<&String> = $destination.into();
+                        r
                     } ),*
-                }
+                }.map(String::as_str)
             }
             /// What is supposed to send this message, and where to?
             fn route(&self) -> (NodeType, NodeType) {
