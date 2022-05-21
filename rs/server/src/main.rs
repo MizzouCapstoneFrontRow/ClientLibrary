@@ -155,7 +155,7 @@ async fn connection_handler(
     mut rx: BufReader<OwnedReadHalf>,
     mut tx: OwnedWriteHalf
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
+    let source_ = source.clone();
     let receive_handler = async move {
         let mut msg_buf = String::with_capacity(1024);
         loop {
@@ -164,7 +164,9 @@ async fn connection_handler(
 
             match result {
                 Ok(0) => {
-                    eprintln!("Machine at {addr:?} disconnected.");
+                    eprintln!("Connection at {addr:?} disconnected ({source:?}).");
+                    // This message also tells the handler to remove this source from the server state.
+                    message_handler_tx.send((Message::new(MessageInner::Disconnect {}), source.clone())).await.expect("Failed to send message to handler");
                     return Ok(());
                 }
                 Err(err) => {
@@ -180,10 +182,10 @@ async fn connection_handler(
                 }
                 Ok(msg) => msg,
             };
-            message_handler_tx.send((message, source.clone())).await;
+            message_handler_tx.send((message, source.clone())).await.expect("Failed to send message to handler");
         }
     };
-
+    let source = source_;
     let send_handler = async move {
         let mut msg_buf = Vec::<u8>::with_capacity(1024);
         loop {
@@ -200,20 +202,28 @@ async fn connection_handler(
                     continue;
                 }
             }
-            match tx.write_all(&msg_buf).await {
+            msg_buf.push(b'\n');
+            let r1 = tx.write_all(&msg_buf).await;
+            let r2 = tx.flush().await;
+            // TODO: Load-bearing heartbeats. Flush doesn't seem to work, i.e. the "last" message isn't necessarily actually sent,
+            // it appears, so heartbeats must be sent to ensure each message goes through.
+            match r1.and(r2) {
                 Err(err) => {
                     eprintln!("Error writing message to {addr:?}: {err:?}.");
                     return Err(err);
                 }
-                Ok(_) => {}
+                Ok(()) => {}
             }
         }
     };
 
-    Ok(tokio::select! {
-        res = tokio::spawn(receive_handler) => res??,
-        res = tokio::spawn(send_handler) => res??,
-    })
+    let res = tokio::try_join! {
+        tokio::spawn(receive_handler),
+        tokio::spawn(send_handler),
+    }?;
+    res.0?;
+    res.1?;
+    Ok(())
 }
 
 async fn environment_listener(state: Arc<ServerState>, environment_srv: TcpListener) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -261,12 +271,22 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
                 } else {
                     use common::NodeType::*;
                     match message.route() {
-                        (_, Server | Any) => match &mut message.inner {
+                        (_, Server | Any) => match &message.inner {
                             MessageInner::MachineDescription { .. } => {
                                 eprintln!("Received unexpected machine description from {source:?}");
                                 continue;
                             }
-                            MessageInner::Disconnect {  } => todo!("Disconnect"),
+                            MessageInner::Disconnect {  } => {
+                                match source {
+                                    MessageSource::Machine(machine) => {
+                                        state.machines.write().await.remove(&machine);
+                                    }
+                                    MessageSource::Environment(environment) => {
+                                        state.environments.write().await.remove(&environment);
+                                    }
+                                };
+                                continue;
+                            },
                             MessageInner::StreamDescription { .. } => {
                                 eprintln!("Received unexpected stream description from {source:?}");
                                 continue;
@@ -274,16 +294,22 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
                             MessageInner::Heartbeat { is_reply } => {
                                 if *is_reply { eprintln!("Received heartbeat reply"); continue; }
                                 eprintln!("Received heartbeat request");
-                                *is_reply = true;
+                                message = Message::new(MessageInner::Heartbeat { is_reply: true });
                                 source.clone() // Send heartbeat reply back to source
                             },
+                            MessageInner::MachineListRequest {} => {
+                                let machines = state.machines.read().await;
+                                let machines = machines.iter().map(|(name, _)| (name as &str).to_owned()).collect();
+                                message = Message::new(MessageInner::MachineListReply { machines });
+                                source.clone() // Send reply back to source
+                            }
                             _ => {
-                                eprintln!("Got message I don't know what to do with from {source:?} ({message:?})");
+                                eprintln!("Received unexpected message from {source:?} ({message:?})");
                                 continue;
                             }
                         },
                         _ => {
-                            eprintln!("Got message I don't know what to do with from {source:?} ({message:?})");
+                            eprintln!("Received unexpected message from {source:?} ({message:?})");
                             continue;
                         }
                     }
@@ -313,8 +339,8 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
                     },
                 };
 
-                if message.expects_reply() {
-                    reply_ids.insert(message.message_id, source).map(|_| panic!("TODO: handle duplicate message_ids"));
+                if message.expects_forwarded_reply() {
+                    reply_ids.insert(message.message_id, source).map(|_| eprintln!("TODO: handle duplicate message_ids"));
                 }
 
                 destination.send(message).await.expect("Failed to send message (buffer full? or destination disconnected?)");
@@ -324,7 +350,23 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
     }
 }
 
-
+async fn heartbeat(state: Arc<ServerState>) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        {
+            let mut machines = state.machines.read().await;
+            for (_name, machine) in &*machines {
+                machine.message_tx.send(Message::new(MessageInner::Heartbeat { is_reply: false })).await.expect("Heartbeat message send failed");
+            }
+        }
+        {
+            let mut environments = state.environments.read().await;
+            for (_name, environment) in &*environments {
+                environment.message_tx.send(Message::new(MessageInner::Heartbeat { is_reply: false })).await.expect("Heartbeat message send failed");
+            }
+        }
+    }
+}
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -342,112 +384,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
         tokio::spawn(environment_listener(Arc::clone(&state), environment_srv)),
         tokio::spawn(machine_stream_listener(Arc::clone(&state), machine_stream_srv)),
         // tokio::spawn(environment_stream_listener(Arc::clone(&state), environment_stream_srv)),
-        tokio::spawn(message_handler(state, message_handler_rx)),
+        tokio::spawn(message_handler(Arc::clone(&state), message_handler_rx)),
+        tokio::spawn(heartbeat(state)),
     };
     dbg!(res)?;
-//    let mut threads = vec![];
-#[cfg(any())]
-   loop {
-        let (stream, addr) = srv.accept()?;
-        eprintln!("New connection from {:?}", addr);
-
-        let mut read_stream = BufReader::new(stream.try_clone()?);
-        let write_stream = stream;
-
-//        threads.push(thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            let machine_description = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&machine_description);
-            let (name, functions, sensors, axes, streams) = match machine_description.unwrap() {
-                Message{inner: MessageInner::MachineDescription { name, functions, sensors, axes, streams }, ..} => {
-                    (name, functions, sensors, axes, streams)
-                },
-                _ => panic!("invalid machine description"),
-            };
-            // {
-            //     let (_, stream) = streams.iter().next().unwrap();
-            //     let addr = format!("http://{}:{}", stream.address, stream.port);
-            //     std::process::Command::new("firefox")
-            //         .args([addr])
-            //         .spawn().unwrap();
-            // }
-
-            eprintln!("TODO: allocate ports for streams and handle them");
-            // let msg = Message::new(
-            //     MessageInner::SetupResponse { connected: true }
-            // );
-            // dbg!(&msg);
-            // try_write_message(&write_stream, &msg)?;
-            // No reply expected
-
-
-            let msg = Message::new(
-                MessageInner::FunctionCall {
-                    name: "count_bools".to_owned(),
-                    parameters: HashMap::<String, Box<RawValue>>::from([
-                        ("values".to_owned(), to_raw_value(&[true, true, false, true, false])?),
-                    ]),
-                },
-            );
-            dbg!(&msg);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-
-            let msg = Message::new(
-                MessageInner::FunctionCall {
-                    name: "average".to_owned(),
-                    parameters: HashMap::<String, Box<RawValue>>::from([
-                        ("x".to_owned(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
-                    ]),
-                },
-            );
-            dbg!(&msg);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-
-            let msg = Message::new(
-                MessageInner::SensorRead {
-                    name: "count".to_owned(),
-                },
-            );
-            dbg!(&msg);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-
-            let msg = Message::new(
-                MessageInner::AxisChange {
-                    name: "example".to_owned(),
-                    value: 6.0,
-                },
-            );
-            dbg!(&msg);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-
-            let msg = Message::new(
-                MessageInner::AxisChange {
-                    name: "example".to_owned(),
-                    value: 42.0,
-                },
-            );
-            dbg!(&msg);
-            try_write_message(&write_stream, &msg)?;
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-
-
-            let reply = try_read_message(&mut read_stream, None).transpose().unwrap();
-            dbg!(&reply);
-//            Ok(())
-//        }));
-
-   }
 
     Ok(())
 }

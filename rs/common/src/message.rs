@@ -40,7 +40,7 @@ impl Message {
 macro_rules! message_inner_enum_with_metadata {
     (
         no_reply: $no_reply:ident,
-        expects_reply: $expects_reply:ident,
+        expects_forwarded_reply: $expects_forwarded_reply:ident,
         reply_to: $reply_to:ident,
         destination: $destination:ident,
         outer: $outer:ident
@@ -50,7 +50,7 @@ macro_rules! message_inner_enum_with_metadata {
                 $(#[$($variant_meta:tt)*])*
                 $variant:ident {
                     $( $field:ident : $field_ty:ty : $field_desc:literal ),* $(,)?
-                } = $variant_str:literal $variant_expects_reply:ident ($source_node_type:ident => $dst_node_type:ident),
+                } = $variant_str:literal $variant_expects_forwarded_reply:ident ($source_node_type:ident => $dst_node_type:ident),
             )* $(,)?
         }
     ) => {
@@ -69,12 +69,12 @@ macro_rules! message_inner_enum_with_metadata {
             }
             /// Does this message expect a reply? I.e. should the server
             /// keep track of its message_id to forward a reply back?
-            fn expects_reply(&self) -> bool {
+            fn expects_forwarded_reply(&self) -> bool {
                 use $name::*;
                 let $no_reply = false;
-                let $expects_reply = true;
+                let $expects_forwarded_reply = true;
                 match self {
-                    $( $variant { .. } => $variant_expects_reply ),*
+                    $( $variant { .. } => $variant_expects_forwarded_reply ),*
                 }
             }
             /// What message is this message a reply to?
@@ -130,8 +130,8 @@ macro_rules! message_inner_enum_with_metadata {
         impl $outer {
             /// Does this message expect a reply? I.e. should the server
             /// keep track of its message_id to forward a reply back?
-            pub fn expects_reply(&self) -> bool {
-                self.inner.expects_reply()
+            pub fn expects_forwarded_reply(&self) -> bool {
+                self.inner.expects_forwarded_reply()
             }
             /// What message is this message a reply to?
             /// None if this message is not a reply
@@ -233,14 +233,12 @@ macro_rules! message_inner_enum_with_metadata {
                 map
             };
         }
-
-
     };
 }
 
 message_inner_enum_with_metadata!{
 no_reply: no_reply,
-expects_reply: expects_reply,
+expects_forwarded_reply: expects_forwarded_reply,
 reply_to: reply_to,
 destination: destination,
 outer: Message
@@ -260,7 +258,7 @@ pub enum MessageInner {
         destination: String: "the machine the function is called on",
         name: String: "the name of the function",
         parameters: HashMap<String, Box<RawValue>>: "function parameters",
-    } = "function_call" expects_reply (Environment => Machine),
+    } = "function_call" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to a function call with the results.
     FunctionReturn {
         reply_to: i64: "message_id of the message this is a return of",
@@ -270,7 +268,7 @@ pub enum MessageInner {
     SensorRead {
         destination: String: "the machine the sensor is called on",
         name: String: "the name of the sensor",
-    } = "sensor_read" expects_reply (Environment => Machine),
+    } = "sensor_read" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to a sensor read with the value.
     SensorReturn {
         reply_to: i64: "message_id of the message this is a return of",
@@ -281,7 +279,7 @@ pub enum MessageInner {
         destination: String: "the machine the axis is called on",
         name: String: "the name of the axis",
         value: f64: "the value of the axis",
-    } = "axis_change" expects_reply (Environment => Machine),
+    } = "axis_change" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to an axis change.
     AxisReturn {
         reply_to: i64: "message_id of the message this is a return of",
@@ -308,6 +306,12 @@ pub enum MessageInner {
     Heartbeat {
         is_reply: bool: "is this heartbeat a reply",
     } = "heartbeat" no_reply (Any => Any),
+    /// Message from environment to server requesting a list of available machines
+    MachineListRequest {} = "machine_list_request" no_reply (Environment => Server),
+    /// Message from server to environment with a list of available machines
+    MachineListReply {
+        machines: Vec<String>: "list of machines connected to the server",
+    } = "machine_list_reply" no_reply (Server => Environment),
     /// TODO
     Other { data: Box<RawValue>: "data" } = "other" no_reply (Any => Any),
 }
