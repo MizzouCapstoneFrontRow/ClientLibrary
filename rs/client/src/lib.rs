@@ -656,12 +656,15 @@ pub extern "C" fn ConnectToServer(
                 let fd = stream.fd;
 
                 let thread = std::thread::spawn(move || {
-                    let mut buf = vec![0; 4096];
+                    let mut buf = vec![0; 65536];
                     let mut file = unsafe { File::from_raw_fd(fd) };
                     while stream_flag.load(Ordering::Relaxed) {
                         match file.read(&mut buf[..]) {
                             Ok(0) => break,
-                            Ok(len) => stream_socket.write_all(&buf[..len]).expect("failed to write data to server"),
+                            Ok(len) => {
+//                                println!("Read {len} bytes from file");
+                                stream_socket.write_all(&buf[..len]).expect("failed to write data to server");
+                            }
                             Err(e) => panic!("{:?}", e),
                         };
                     }

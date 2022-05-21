@@ -35,5 +35,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         inner: MessageInner::AxisChange { name: "xAxis".into(), value: 3.0 },
     };
     dbg!(to_raw_value(&msg));
+    let msg = Message{
+        message_id: 4096,
+        inner: MessageInner::StreamDescription { machine: "machine name".into(), stream: "stream name".into() },
+    };
+    dbg!(to_raw_value(&msg));
     Ok(())
 }
