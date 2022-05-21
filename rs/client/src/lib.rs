@@ -30,7 +30,7 @@ use errors::ErrorCode::{self, *};
 #[derive(Default)]
 pub struct UnconnectedClient {
     name: Option<String>,
-    reset: Option<extern "C" fn()>,
+    reset: Option<unsafe extern "C" fn()>,
     streams: HashMap<String, Stream>,
     sensors: HashMap<String, Sensor>,
     axes: HashMap<String, Axis>,
@@ -39,7 +39,7 @@ pub struct UnconnectedClient {
 
 pub struct ConnectedClient {
     name: String,
-    reset: Option<extern "C" fn()>,
+    reset: Option<unsafe extern "C" fn()>,
     streams: HashMap<String, Stream>,
     sensors: HashMap<String, Sensor>,
     axes: HashMap<String, Axis>,
@@ -109,7 +109,7 @@ pub extern "C" fn SetName(
 #[no_mangle]
 pub extern "C" fn SetReset(
     handle: Option<&mut ClientHandle>,
-    reset: Option<extern "C" fn()>
+    reset: Option<unsafe extern "C" fn()>
 ) -> ErrorCode {
     shadow_or_return!(mut handle, InvalidHandle, with_message "Error setting name: Invalid handle (null)");
     let handle = unwrap_or_return!(handle.as_unconnected_mut(), AlreadyConnected, with_message "Error setting name: Cannot set name after connecting to server.");
