@@ -148,14 +148,14 @@ void reset(void) {
 }
 
 
-int main() {
+int main(int argc, char **argv) {
     ClientHandle handle = InitializeLibrary();
     printf("handle: %p\n", handle);
 
     enum ErrorCode result;
 
     printf("setting name\n");
-    result = SetName(handle, "Example");
+    result = SetName(handle, argc <= 1 ? "Example" : argv[1]);
     printf("result: %d\n", (int)result);
 
     printf("setting reset\n");
