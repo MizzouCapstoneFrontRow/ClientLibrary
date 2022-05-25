@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 use glib::{MainContext, Cast};
-use tokio::{net::TcpStream, io::{AsyncWriteExt}, sync::mpsc::error::TryRecvError};
+use tokio::{net::TcpStream, io::AsyncWriteExt};
 use common::message::{Message, MessageInner, try_read_message_async, try_write_message_async};
 use gio::{traits::ApplicationExt, prelude::ApplicationExtManual};
 use gtk::{Application, traits::{GtkApplicationExt, EntryExt, WidgetExt, ContainerExt, ListBoxExt, LabelExt}, Builder, prelude::{BuilderExtManual, DialogExtManual}, Dialog, ResponseType, Entry, MessageType, builders::{MessageDialogBuilder}, ButtonsType, ListBox, Label};
@@ -20,6 +20,18 @@ fn main() {
 
     // Run the application
     app.run();
+}
+
+async fn show_error_dialog(text: impl AsRef<str>, secondary_text: impl AsRef<str>) {
+    let error_dialog = MessageDialogBuilder::new()
+        .message_type(MessageType::Error)
+        .text(text.as_ref())
+        .secondary_text(secondary_text.as_ref())
+        .buttons(ButtonsType::Ok)
+        .build();
+
+    error_dialog.run_future().await;
+    error_dialog.hide();
 }
 
 async fn run_connect_dialog(app: &Application) -> Option<(String, u16, u16)> {
@@ -50,16 +62,10 @@ async fn run_connect_dialog(app: &Application) -> Option<(String, u16, u16)> {
                         } else {
                             ("stream", &stream_port_str)
                         };
-                        let error_dialog = MessageDialogBuilder::new()
-                            .message_type(MessageType::Error)
-                            .text(&format!("Invalid port"))
-                            .secondary_text(&format!("Invalid {which} port: {port_str}"))
-                            .buttons(ButtonsType::Ok)
-                            .build();
-
-                        error_dialog.run_future().await;
-                        error_dialog.hide();
-                        dbg!("A");
+                        show_error_dialog(
+                            format!("Invalid port"),
+                            format!("Invalid {which} port: {port_str}")
+                        ).await;
                         continue;
                     }
                     (server, Ok(server_port), Ok(stream_port)) => (server, server_port, stream_port),
@@ -78,11 +84,8 @@ async fn run_connect_dialog(app: &Application) -> Option<(String, u16, u16)> {
 
 
 enum ChooserResult {
-    Machine{
-        connection: ServerConnection,
-        machine: String,
-    },
-    ConnectError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    Machine(String),
+    ConnectError(&'static str),
     Back,
     Quit,
 }
@@ -93,26 +96,10 @@ struct ServerConnection {
     communication_thread: std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>>,
 }
 
-fn connect_to_server(server: &str, server_port: u16, _stream_port: u16) -> Result<ServerConnection, std::io::Error> {
-    let stream = match std::net::TcpStream::connect((&*server, server_port))
-        .and_then(|s| {s.set_nonblocking(true)?; Ok(s)}
-    ) {
-        Ok(stream) => stream,
-        Err(err) => {
-            return Err(err);
-        }
-    };
+async fn connect_to_server(server: &str, server_port: u16, _stream_port: u16) -> Result<ServerConnection, std::io::Error> {
+    let server = server.to_owned();
 
-    let read_stream = match stream.try_clone() {
-        Ok(stream) => stream,
-        Err(err) => return Err(err),
-    };
-    let write_stream = stream;
-
-    let (send_tx, mut send_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
-    let (recv_tx, mut recv_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
-
-    let (heartbeat_shortcut_tx, mut heartbeat_shortcut_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let (connection_tx, connection_rx) = tokio::sync::oneshot::channel();
 
     let communication_thread = std::thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -120,8 +107,25 @@ fn connect_to_server(server: &str, server_port: u16, _stream_port: u16) -> Resul
             .build()
             .unwrap();
         runtime.block_on(async move {
-            let mut read_stream = tokio::io::BufReader::new(TcpStream::from_std(read_stream)?);
-            let mut write_stream = TcpStream::from_std(write_stream)?;
+            let stream = match TcpStream::connect((&*server, server_port)).await {
+                Ok(stream) => stream,
+                Err(err) => {
+                    connection_tx.send(Err(err)).unwrap();
+                    return Ok(());
+                },
+            };
+
+            let (read_stream, mut write_stream) = stream.into_split();
+            let mut read_stream = tokio::io::BufReader::new(read_stream);
+
+            let (send_tx, mut send_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+            let (recv_tx, recv_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+
+            let (heartbeat_shortcut_tx, mut heartbeat_shortcut_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+
+            let connection = (send_tx, recv_rx);
+            connection_tx.send(Ok(connection)).unwrap();
+
 
             let message_sender = async move {
                 while let Some(msg) = tokio::select!{
@@ -184,6 +188,9 @@ fn connect_to_server(server: &str, server_port: u16, _stream_port: u16) -> Resul
         })
     });
 
+    let unused = eprintln!("TODO: This is assuming it is safe to use tokio::sync::oneshot channels from other runtimes");
+    let (send_tx, recv_rx) = connection_rx.await.unwrap()?;
+
     Ok(ServerConnection {
         send_tx,
         recv_rx,
@@ -192,18 +199,21 @@ fn connect_to_server(server: &str, server_port: u16, _stream_port: u16) -> Resul
 }
 
 
-async fn run_chooser_dialog(app: &Application, server: &str, server_port: u16, stream_port: u16) -> ChooserResult {
+async fn run_chooser_dialog(app: &Application, server: &mut ServerConnection) -> ChooserResult {
     let ServerConnection {
         send_tx,
-        mut recv_rx,
-        communication_thread,
-    } = match connect_to_server(server, server_port, stream_port) {
-        Ok(connection) => connection,
-        Err(err) => return ChooserResult::ConnectError(err.into()),
-    };
+        recv_rx,
+        ..
+    } = server;
 
     'refresh_loop: loop {
-        send_tx.send(Message::new(MessageInner::MachineListRequest{})).expect("Failed to send message");
+        match send_tx.send(Message::new(MessageInner::MachineListRequest{})) {
+            Ok(_) => {},
+            Err(_) => {
+                // Server disconnected
+                return ChooserResult::ConnectError("Server disconnected before machine list request was sent".into());
+            },
+        }
         eprintln!("\x1b[33mSent machine list request message\x1b[0m");
 
         struct Disconnected;
@@ -281,14 +291,7 @@ async fn run_chooser_dialog(app: &Application, server: &str, server_port: u16, s
                     }
                 };
                 // Connect
-                return ChooserResult::Machine {
-                    connection: ServerConnection {
-                        send_tx,
-                        recv_rx,
-                        communication_thread,
-                    },
-                    machine,
-                };
+                return ChooserResult::Machine(machine);
             },
             ResponseType::No => {
                 // Back
@@ -317,11 +320,10 @@ enum MachineResult {
     Quit,
 }
 
+#[allow(unused)]
 async fn run_machine_window(
     app: &Application,
-    send_tx: tokio::sync::mpsc::UnboundedSender<Message>,
-    recv_rx: tokio::sync::mpsc::UnboundedReceiver<Message>,
-    communication_thread: std::thread::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>>,
+    server_connection: &mut ServerConnection,
     machine: &str,
 ) -> MachineResult {
     todo!() as MachineResult
@@ -350,28 +352,30 @@ fn build_logic(app_: &Application) {
         let _app_guard = _app_guard;
 
         'connect_dialog: while let Some((server, server_port, stream_port)) = run_connect_dialog(&app).await {
+            let mut server_connection = match connect_to_server(&server, server_port, stream_port).await {
+                Ok(connection) => connection,
+                Err(err) => {
+                    show_error_dialog(
+                        format!("Failed to connect to server"),
+                        format!("Failed to connect to server: {err:?}"),
+                    ).await;
+                    continue 'connect_dialog;
+                },
+            };
             'machine_chooser: loop {
-                match run_chooser_dialog(&app, &server, server_port, stream_port).await {
-                    ChooserResult::Machine {
-                        connection: ServerConnection { send_tx, recv_rx, communication_thread },
-                        machine,
-                    } => {
-                        match run_machine_window(&app, send_tx, recv_rx, communication_thread, &machine).await {
+                match run_chooser_dialog(&app, &mut server_connection).await {
+                    ChooserResult::Machine(machine) => {
+                        match run_machine_window(&app, &mut server_connection, &machine).await {
                             MachineResult::DisconnectMachine => continue 'machine_chooser,
                             MachineResult::DisconnectServer => continue 'connect_dialog,
                             MachineResult::Quit => return,
                         };
                     },
-                    ChooserResult::ConnectError(err) => {
-                        let error_dialog = MessageDialogBuilder::new()
-                            .message_type(MessageType::Error)
-                            .text(&format!("Failed to connect to server"))
-                            .secondary_text(&format!("Failed to connect to server: {err:?}"))
-                            .buttons(ButtonsType::Ok)
-                            .build();
-
-                        error_dialog.run_future().await;
-                        error_dialog.hide();
+                    ChooserResult::ConnectError(msg) => {
+                        show_error_dialog(
+                            format!("Failed to connect to server"),
+                            format!("Failed to connect to server: {msg}"),
+                        ).await;
                         continue 'connect_dialog;
                     },
                     ChooserResult::Back => continue 'connect_dialog,
