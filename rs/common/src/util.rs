@@ -1,37 +1,55 @@
 #[macro_export]
-macro_rules! unwrap_or_return {
-    ( $value:expr, $retval:expr , with_message($e:pat) $( $msg:tt )* ) => {
-        // Option<T> -> Option<Option<T>> -> Option<T>
-        // Result<T> -> Result<Option<T>> -> Option<T>
+macro_rules! unwrap_or {
+    ( $value:expr, $else_value:expr , with_message($e:pat) $( $msg:tt )* ) => {
+        // This arm only accepts Result
         match ($value) {
             Ok(x) => x,
             Err($e) => {
-                 eprintln!($($msg)*);
-                return $retval
+                eprintln!($($msg)*);
+                $else_value
             },
         }
     };
-    ( $value:expr, $retval:expr $(, $( with_message $( $msg:tt )* )? )? ) => {
+    ( $value:expr, $else_value:expr $(, $( with_message $( $msg:tt )* )? )? ) => {
         // Option<T> -> Option<Option<T>> -> Option<T>
         // Result<T> -> Result<Option<T>> -> Option<T>
         match ($value).map(Some).unwrap_or_default() {
             Some(x) => x,
             None => {
                 $( $( eprintln!($($msg)*); )? )?
-                return $retval
+                $else_value
             },
         }
     };
 }
+pub use unwrap_or;
+
+#[macro_export]
+macro_rules! unwrap_or_return {
+    ( $value:expr, $retval:expr $(, $( $rest:tt )* )? ) => {
+        $crate::util::unwrap_or!($value, return $retval $(, $($rest)* )? )
+    }
+}
 pub use unwrap_or_return;
+
+#[macro_export]
+macro_rules! shadow_or {
+    ( mut $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
+        let mut $shadow = unwrap_or!($shadow, $retval $(, $( $rest )* )?);
+    };
+    ( $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
+        let $shadow = unwrap_or!($shadow, $retval $(, $( $rest )* )?);
+    };
+}
+pub use shadow_or;
 
 #[macro_export]
 macro_rules! shadow_or_return {
     ( mut $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
-        let mut $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
+        $crate::util::shadow_or!(mut $shadow, return $retval $(, $($rest)* )? )
     };
     ( $shadow:ident, $retval:expr $(, $( $rest:tt )* )? ) => {
-        let $shadow = unwrap_or_return!($shadow, $retval $(, $( $rest )* )?);
+        $crate::util::shadow_or!($shadow, return $retval $(, $($rest)* )? )
     };
 }
 pub use shadow_or_return;

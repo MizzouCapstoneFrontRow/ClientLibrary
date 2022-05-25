@@ -21,7 +21,7 @@ use std::{
     collections::HashMap, io::BufReader,
 };
 use libc::{c_char, c_void};
-use indexmap::map::IndexMap; 
+use indexmap::map::IndexMap;
 use callbacks::*;
 use common::message::{self, Message, MessageInner, try_read_message, try_write_message};
 use common::util::*;
@@ -84,7 +84,10 @@ pub extern "C" fn ShutdownLibrary(handle: Option<Box<ClientHandle>>) {
     match *handle {
         Unconnected(_) => {}, // nothing to do
         Connected(handle) => {
-            try_write_message(&handle.write_connection, &Message::new(MessageInner::Disconnect {})); // TODO: error handle
+            match try_write_message(&handle.write_connection, &Message::new(MessageInner::Disconnect {})) {
+                Ok(_) | Err(message::TryWriteMessageError::Disconnected(_)) => {},
+                err => eprintln!("Error shutting down library: {err:?}"),
+            }
         },
     };
 }
@@ -312,7 +315,6 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                 return OtherError;
             },
         }
-        
     }
 
     NoError

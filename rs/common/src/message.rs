@@ -1,11 +1,7 @@
 use crate::NodeType::{self, *};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, AtomicI64, Ordering};
-use std::net::TcpStream;
-use std::io::{Write, BufRead, BufReader};
-use std::time::Duration;
+use std::sync::atomic::{AtomicI64, Ordering};
 use serde_json::value::{RawValue, to_raw_value};
-use polling::{Poller, Event};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone)]
@@ -418,32 +414,196 @@ impl<'de> serde::de::Deserialize<'de> for Message {
     }
 }
 
+#[cfg(any(feature = "io", feature = "tokio"))]
+mod io_common {
+    #[derive(Debug)]
+    pub enum TryReadMessageError {
+        IOError(std::io::Error),
+        JSONError(serde_json::Error),
+        EOF
+    }
 
-lazy_static::lazy_static! {
-    static ref POLLER: Poller = Poller::new().unwrap_or_else(|e| panic!("Failed to create poller: {:?}", e));
-    static ref KEY: AtomicUsize = AtomicUsize::new(0);
-}
+    impl std::fmt::Display for TryReadMessageError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                TryReadMessageError::IOError(err) =>
+                    write!(f, "IO error reading message: {err}"),
+                TryReadMessageError::JSONError(err) =>
+                    write!(f, "JSON error reading message: {err}"),
+                TryReadMessageError::EOF =>
+                    write!(f, "reached EOF before reading message"),
+            }
+        }
+    }
 
-pub fn try_read_message(stream: &mut BufReader<TcpStream>, timeout: Option<Duration>) -> Result<Option<Message>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let poller: &Poller = &*POLLER;
-    let key = KEY.fetch_add(1, Ordering::Relaxed);
-    poller.add(stream.get_ref(), Event::readable(key))?;
-    let mut events = Vec::with_capacity(1);
-    poller.wait(&mut events, timeout)?;
-    poller.delete(stream.get_ref())?;
-    if events.len() > 0 {
-        let mut msg_buf = String::with_capacity(4096);
-        stream.read_line(&mut msg_buf)?;
-        Ok(Some(serde_json::from_str::<Message>(&msg_buf)?))
-    } else {
-        Ok(None)
+    impl From<std::io::Error> for TryReadMessageError {
+        fn from(err: std::io::Error) -> Self {
+            TryReadMessageError::IOError(err)
+        }
+    }
+    impl From<serde_json::Error> for TryReadMessageError {
+        fn from(err: serde_json::Error) -> Self {
+            TryReadMessageError::JSONError(err)
+        }
+    }
+
+    impl std::error::Error for TryReadMessageError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                TryReadMessageError::IOError(err) => Some(err),
+                TryReadMessageError::JSONError(err) => Some(err),
+                TryReadMessageError::EOF => None,
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum TryWriteMessageError {
+        IOError(std::io::Error),
+        JSONError(serde_json::Error),
+        Disconnected(std::io::Error)
+    }
+
+    impl std::fmt::Display for TryWriteMessageError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                TryWriteMessageError::IOError(err) =>
+                    write!(f, "IO error writing message: {err}"),
+                TryWriteMessageError::JSONError(err) =>
+                    write!(f, "JSON error writing message: {err}"),
+                TryWriteMessageError::Disconnected(_) =>
+                    write!(f, "broken pipe while writing message"),
+            }
+        }
+    }
+
+    impl From<std::io::Error> for TryWriteMessageError {
+        fn from(err: std::io::Error) -> Self {
+            if err.kind() == std::io::ErrorKind::BrokenPipe {
+                TryWriteMessageError::Disconnected(err)
+            } else {
+                TryWriteMessageError::IOError(err)
+            }
+        }
+    }
+    impl From<serde_json::Error> for TryWriteMessageError {
+        fn from(err: serde_json::Error) -> Self {
+            TryWriteMessageError::JSONError(err)
+        }
+    }
+
+    impl std::error::Error for TryWriteMessageError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                TryWriteMessageError::IOError(err) => Some(err),
+                TryWriteMessageError::JSONError(err) => Some(err),
+                TryWriteMessageError::Disconnected(err) => Some(err),
+            }
+        }
     }
 }
 
-pub fn try_write_message(mut stream: impl Write, msg: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-    let mut data = Vec::with_capacity(4096);
-    serde_json::to_writer(&mut data, msg)?;
-    data.push(b'\n');
-    stream.write_all(&data)?;
-    Ok(())
+#[cfg(any(feature = "io", feature = "tokio"))]
+pub use io_common::{TryReadMessageError, TryWriteMessageError};
+
+#[cfg(feature = "io")]
+mod io {
+    use std::os::unix::prelude::AsRawFd;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use polling::{Poller, Event};
+    use std::io::{Write, BufRead, BufReader, Read};
+    use std::time::Duration;
+
+    use super::{Message, TryReadMessageError, TryWriteMessageError};
+
+    lazy_static::lazy_static! {
+        static ref POLLER: Poller = Poller::new().unwrap_or_else(|e| panic!("Failed to create poller: {:?}", e));
+        static ref KEY: AtomicUsize = AtomicUsize::new(0);
+    }
+
+    pub fn try_read_message(stream: &mut BufReader<impl Read + AsRawFd>, timeout: Option<Duration>) -> Result<Option<Message>, TryReadMessageError> {
+        let poller: &Poller = &*POLLER;
+        let key = KEY.fetch_add(1, Ordering::Relaxed);
+        poller.add(stream.get_ref(), Event::readable(key))?;
+        let mut events = Vec::with_capacity(1);
+        poller.wait(&mut events, timeout)?;
+        poller.delete(stream.get_ref())?;
+        if events.len() > 0 {
+            let mut msg_buf = String::with_capacity(4096);
+            stream.read_line(&mut msg_buf)?;
+            if msg_buf.len() == 0 {
+                Err(TryReadMessageError::EOF)
+            } else {
+                Ok(Some(serde_json::from_str::<Message>(&msg_buf)?))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn try_write_message(mut stream: impl Write, msg: &Message) -> Result<(), TryWriteMessageError> {
+        let mut data = serde_json::to_vec(msg)?;
+        data.push(b'\n');
+        stream.write_all(&data)?;
+        Ok(())
+    }
 }
+
+#[cfg(feature = "io")]
+pub use io::*;
+
+#[cfg(feature = "tokio")]
+mod async_tokio {
+    use std::{time::Duration, future::Future, pin::Pin};
+    use super::{Message, TryReadMessageError, TryWriteMessageError};
+    use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, AsyncBufRead};
+
+    /// Not cancellation-safe
+    pub async fn try_read_message_async(mut stream: impl AsyncBufRead + Unpin, timeout: Option<Duration>) -> Result<Option<Message>, TryReadMessageError> {
+        let sleep: Pin<Box<dyn Send + Future<Output=()>>> = match timeout {
+            Some(timeout) => Box::pin(tokio::time::sleep(timeout)),
+            None => Box::pin(std::future::pending()),
+        };
+
+        let mut msg_buf = Vec::with_capacity(1024);
+        // read_line is not cancellation-safe at all, and read_until is only partially cancellation-safe
+        // (no data will be lost, but it may cut off arbitrarily)
+        // We assume that if any data was read before the timeout,
+        // then a full message is available and attempt to finish reading it
+        tokio::select!{
+            // Biased so if the read succeeds/fails immediately, select doesn't ignore it by randomly choosing the sleep first.
+            biased;
+            res = stream.read_until(b'\n', &mut msg_buf) => {
+                res?;
+                if msg_buf.len() == 0 {
+                    Err(TryReadMessageError::EOF)
+                } else {
+                    Ok(Some(serde_json::from_slice::<Message>(&msg_buf)?))
+                }
+            },
+            _ = sleep => {
+                if msg_buf.len() > 0 {
+                    // Some data was read, so try to finish reading it.
+                    if !msg_buf.contains(&b'\n') {
+                        stream.read_until(b'\n', &mut msg_buf).await?;
+                    }
+                    Ok(Some(serde_json::from_slice::<Message>(&msg_buf)?))
+                } else {
+                    // No data was read, so return None
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    /// Not cancellation-safe
+    pub async fn try_write_message_async(mut stream: impl AsyncWrite + Unpin, msg: &Message) -> Result<(), TryWriteMessageError> {
+        let mut data = serde_json::to_vec(msg)?;
+        data.push(b'\n');
+        stream.write_all(&data).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub use async_tokio::*;

@@ -1,7 +1,5 @@
 use std::{collections::HashMap, sync::Arc, time::Duration, net::SocketAddr};
-use tokio::{net::{TcpListener, ToSocketAddrs, tcp::{OwnedReadHalf, OwnedWriteHalf}}, sync::{RwLock, mpsc::{Sender, Receiver}}, io::{BufReader, AsyncBufReadExt, AsyncWriteExt}, runtime::Handle};
-//use std::thread;
-use serde_json::value::{RawValue, to_raw_value};
+use tokio::{net::{TcpListener, tcp::{OwnedReadHalf, OwnedWriteHalf}}, sync::{RwLock, mpsc::{Sender, Receiver, error::TrySendError}}, io::{BufReader, AsyncBufReadExt, AsyncWriteExt}, runtime::Handle};
 use common::{message::*, unwrap_or_return};
 
 #[derive(Debug, Clone)]
@@ -107,6 +105,7 @@ async fn machine_listener(state: Arc<ServerState>, machine_srv: TcpListener) -> 
     }
 }
 
+#[allow(unused)]
 async fn machine_stream_listener(state: Arc<ServerState>, machine_stream_srv: TcpListener) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let handle = Handle::current();
     loop {
@@ -157,57 +156,37 @@ async fn connection_handler(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let source_ = source.clone();
     let receive_handler = async move {
-        let mut msg_buf = String::with_capacity(1024);
         loop {
-            msg_buf.clear();
-            let result = rx.read_line(&mut msg_buf).await;
-
-            match result {
-                Ok(0) => {
+            let message = match try_read_message_async(&mut rx, None).await {
+                Err(TryReadMessageError::EOF) => {
                     eprintln!("Connection at {addr:?} disconnected ({source:?}).");
                     // This message also tells the handler to remove this source from the server state.
-                    message_handler_tx.send((Message::new(MessageInner::Disconnect {}), source.clone())).await.expect("Failed to send message to handler");
+                    message_handler_tx.send((Message::new(MessageInner::Disconnect {}), source_.clone())).await.expect("Failed to send message to handler");
                     return Ok(());
                 }
                 Err(err) => {
                     eprintln!("Error reading message from {addr:?}: {err:?}.");
                     return Err(err);
                 }
-                Ok(_) => {}
+                Ok(Some(message)) => message,
+                Ok(None) => unreachable!("timeout was zero"),
             };
-            let message = match serde_json::from_str::<Message>(&msg_buf) {
-                Err(err) => {
-                    eprintln!("Error parsing message from {addr:?}: {err:?}.");
-                    continue;
-                }
-                Ok(msg) => msg,
-            };
-            message_handler_tx.send((message, source.clone())).await.expect("Failed to send message to handler");
+            message_handler_tx.send((message, source_.clone())).await.expect("Failed to send message to handler");
         }
     };
-    let source = source_;
+
     let send_handler = async move {
-        let mut msg_buf = Vec::<u8>::with_capacity(1024);
         loop {
-            msg_buf.clear();
             let msg = unwrap_or_return!(
                 message_rx.recv().await,
                 Ok(()),
                 with_message "Message sender was dropped (recv returned None)"
             );
-            match serde_json::to_writer(&mut msg_buf, &msg) {
-                Ok(_) => {},
-                Err(err) => {
-                    eprintln!("Failed to encode message as JSON {err:?} ({msg:?})");
-                    continue;
-                }
-            }
-            msg_buf.push(b'\n');
-            let r1 = tx.write_all(&msg_buf).await;
+            let r1 = try_write_message_async(&mut tx, &msg).await;
             let r2 = tx.flush().await;
             // TODO: Load-bearing heartbeats. Flush doesn't seem to work, i.e. the "last" message isn't necessarily actually sent,
             // it appears, so heartbeats must be sent to ensure each message goes through.
-            match r1.and(r2) {
+            match r1.and(r2.map_err(Into::into)) {
                 Err(err) => {
                     eprintln!("Error writing message to {addr:?}: {err:?}.");
                     return Err(err);
@@ -231,11 +210,11 @@ async fn environment_listener(state: Arc<ServerState>, environment_srv: TcpListe
         let (stream, addr) = environment_srv.accept().await?;
         eprintln!("New environment connection from {:?}", addr);
         let (rx, tx) = stream.into_split();
-        
+
         let rx = BufReader::new(rx);
 
         let (message_tx, message_rx) = tokio::sync::mpsc::channel(16);
-        
+
         let environment = Arc::new(Environment {
             addr,
             message_tx,
@@ -354,15 +333,31 @@ async fn heartbeat(state: Arc<ServerState>) -> Result<(), Box<dyn std::error::Er
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         {
-            let mut machines = state.machines.read().await;
-            for (_name, machine) in &*machines {
-                machine.message_tx.send(Message::new(MessageInner::Heartbeat { is_reply: false })).await.expect("Heartbeat message send failed");
+            let machines = state.machines.read().await;
+            for (name, machine) in &*machines {
+                match machine.message_tx.try_send(Message::new(MessageInner::Heartbeat { is_reply: false })) {
+                    Ok(()) => {},
+                    Err(TrySendError::Full(_)) => {
+                        eprintln!("Failed to write heartbeat to machine {name:?} (buffer full)");
+                    },
+                    Err(TrySendError::Closed(_)) => {
+                        eprintln!("Failed to write heartbeat to machine {name:?} (stream closed)");
+                    },
+                }
             }
         }
         {
-            let mut environments = state.environments.read().await;
-            for (_name, environment) in &*environments {
-                environment.message_tx.send(Message::new(MessageInner::Heartbeat { is_reply: false })).await.expect("Heartbeat message send failed");
+            let environments = state.environments.read().await;
+            for (addr, environment) in &*environments {
+                match environment.message_tx.try_send(Message::new(MessageInner::Heartbeat { is_reply: false })) {
+                    Ok(()) => {},
+                    Err(TrySendError::Full(_)) => {
+                        eprintln!("Failed to write heartbeat to environment {addr:?} (buffer full)");
+                    },
+                    Err(TrySendError::Closed(_)) => {
+                        eprintln!("Failed to write heartbeat to environment {addr:?} (stream closed)");
+                    },
+                }
             }
         }
     }
