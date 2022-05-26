@@ -1,6 +1,6 @@
 use std::io::Read;
 use std::{collections::HashMap, io::BufReader};
-use std::net::{TcpListener, ToSocketAddrs};
+use std::net::TcpListener;
 //use std::thread;
 use serde_json::value::{RawValue, to_raw_value};
 use common::message::*;
@@ -67,10 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::FunctionCall {
-                    destination: name.clone(),
-                    name: "count_bools".to_owned(),
-                    parameters: HashMap::<String, Box<RawValue>>::from([
-                        ("values".to_owned(), to_raw_value(&[true, true, false, true, false])?),
+                    destination: name.as_ref().into(),
+                    name: "count_bools".into(),
+                    parameters: HashMap::<_, Box<RawValue>>::from([
+                        ("values".into(), to_raw_value(&[true, true, false, true, false])?),
                     ]),
                 },
             );
@@ -85,10 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::FunctionCall {
-                    destination: name.clone(),
-                    name: "average".to_owned(),
-                    parameters: HashMap::<String, Box<RawValue>>::from([
-                        ("x".to_owned(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
+                    destination: name.as_ref().into(),
+                    name: "average".into(),
+                    parameters: HashMap::<_, Box<RawValue>>::from([
+                        ("x".into(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
                     ]),
                 },
             );
@@ -103,8 +103,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
             let msg = Message::new(
                 MessageInner::SensorRead {
-                    destination: name.clone(),
-                    name: "count".to_owned(),
+                    destination: name.as_ref().into(),
+                    name: "count".into(),
                 },
             );
             dbg!(&msg);
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let msg = Message::new(
                 MessageInner::AxisChange {
                     destination: name.clone(),
-                    name: "example".to_owned(),
+                    name: "example".into(),
                     value: 6.0,
                 },
             );
@@ -142,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let msg = Message::new(
                 MessageInner::AxisChange {
                     destination: name.clone(),
-                    name: "example".to_owned(),
+                    name: "example".into(),
                     value: 42.0,
                 },
             );

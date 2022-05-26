@@ -1,24 +1,24 @@
-use std::{collections::HashMap, io::BufReader};
-use std::net::{TcpListener, ToSocketAddrs};
-//use std::thread;
-use serde_json::value::{RawValue, to_raw_value};
+use std::{collections::HashMap, sync::Arc};
+use serde_json::value::to_raw_value;
 use common::message::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let double_str: Arc<str> = "double".into();
+    let axis_group = Some("movement".into());
     let msg = Message{
         message_id: 4096,
         inner: MessageInner::MachineDescription {
-            name: "machine name".to_owned(),
+            name: "machine name".into(),
             functions: HashMap::from(
                 [("test".into(), Function{ parameters: [].into(), returns: [].into() })]
             ),
             sensors: HashMap::from(
-                [("test".into(), Sensor{ output_type: "double".into(), min: -1.0, max: 1.0 })]
+                [("test".into(), Sensor{ output_type: double_str.clone(), min: -1.0, max: 1.0 })]
             ),
             axes: HashMap::from(
                 [
-                    ("test1".into(), Axis{ input_type: "double".into(), min: 0.0, max: 1.0, group: "movement".into(), direction: "y".into() }),
-                    ("test2".into(), Axis{ input_type: "double".into(), min: -1.0, max: 1.0, group: "movement".into(), direction: "x".into() }),
+                    ("test1".into(), Axis{ input_type: double_str.clone(), min: 0.0, max: 1.0, group: axis_group.clone(), direction: Some("y".into()) }),
+                    ("test2".into(), Axis{ input_type: double_str.clone(), min: -1.0, max: 1.0, group: axis_group.clone(), direction: Some("x".into()) }),
                 ]
             ),
             streams: HashMap::from(
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     dbg!(to_raw_value(&msg));
     let msg = Message{
         message_id: 4096,
-        inner: MessageInner::AxisChange { destination: "machine name".to_owned(), name: "xAxis".into(), value: 3.0 },
+        inner: MessageInner::AxisChange { destination: "machine name".into(), name: "xAxis".into(), value: 3.0 },
     };
     dbg!(to_raw_value(&msg));
     let msg = Message{

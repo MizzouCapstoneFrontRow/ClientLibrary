@@ -1,5 +1,6 @@
 use indexmap::map::IndexMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use serde_json::value::RawValue;
 use crate::marshall::{
     InputMarshall,
@@ -32,24 +33,29 @@ pub(crate) enum Type {
 
 macro_rules! to_and_from_str {
     ($ty:ident :
-        $( $s:literal => $a:ident $( ( $b:ident ) )? ),* $(,)?
+        $( $str:literal => $tybase:ident $( ( $tyspec:ident ) )? ),* $(,)?
     ) => {
         impl $ty {
             pub(crate) fn from_str(s: &str) -> Option<Self> {
                 use $ty::*;
                 use PrimType::*;
                 Some(match s {
-                    $( $s => $a $( ( $b ) )? ),* ,
+                    $( $str => $tybase $( ( $tyspec ) )? ),* ,
                     _ => return None,
                 })
             }
-            pub(crate) fn to_str(&self) -> &'static str {
+            pub(crate) fn to_str(&self) -> &'static Arc<str> {
+                TYPE_STRS.get(self).unwrap()
+            }
+        }
+        lazy_static::lazy_static! {
+            static ref TYPE_STRS: HashMap<$ty, Arc<str>> = {
                 use $ty::*;
                 use PrimType::*;
-                match self {
-                    $( $a $( ( $b ) )? => $s ),*
-                }
-            }
+                HashMap::from([
+                    $( ( $tybase $( ( $tyspec ) )?, $str.into() ) ),*
+                ])
+            };
         }
     }
 }
@@ -83,21 +89,20 @@ to_and_from_str!(Type:
 //}
 
 pub(crate) struct Function {
-    pub(crate) parameters: IndexMap<String, (Type, InputMarshaller)>,
-    pub(crate) returns: IndexMap<String, (Type, OutputMarshaller)>,
+    pub(crate) parameters: IndexMap<Arc<str>, (Type, InputMarshaller)>,
+    pub(crate) returns: IndexMap<Arc<str>, (Type, OutputMarshaller)>,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         parameters: *const *const libc::c_void,
         returns: *const *mut libc::c_void,
     ),
 }
 
-#[allow(unused)] // TODO: once axes are implemented, remove this allow
 pub(crate) struct Axis {
     pub(crate) input_type: Type,
     pub(crate) min: f64,
     pub(crate) max: f64,
-    pub(crate) group: String,
-    pub(crate) direction: String,
+    pub(crate) group: Option<Arc<str>>,
+    pub(crate) direction: Option<Arc<str>>,
     pub(crate) fn_ptr: unsafe extern "C" fn(
         input: f64,
     ),
@@ -113,14 +118,14 @@ pub(crate) struct Sensor {
 }
 
 pub(crate) struct Stream {
-    pub(crate) format: String,
+    pub(crate) format: Arc<str>,
     pub(crate) fd: RawFd,
 }
 
 impl Function {
     pub(crate) fn new(
-        parameters: IndexMap<String, Type>,
-        returns: IndexMap<String, Type>,
+        parameters: IndexMap<Arc<str>, Type>,
+        returns: IndexMap<Arc<str>, Type>,
         fn_ptr: unsafe extern "C" fn(
             parameters: *const *const libc::c_void,
             returns: *const *mut libc::c_void,
@@ -128,7 +133,7 @@ impl Function {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let parameters = parameters
             .into_iter()
-            .map(|(name, r#type)| -> Result<(String, (Type, InputMarshaller)), Box<dyn std::error::Error + Send + Sync + 'static>> {
+            .map(|(name, r#type)| -> Result<(Arc<str>, (Type, InputMarshaller)), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 Ok((
                     name,
                     (
@@ -141,7 +146,7 @@ impl Function {
             }).collect::<Result<_,_>>()?;
         let returns = returns
             .into_iter()
-            .map(|(name, r#type)| -> Result<(String, (Type, OutputMarshaller)), Box<dyn std::error::Error + Send + Sync + 'static>> {
+            .map(|(name, r#type)| -> Result<(Arc<str>, (Type, OutputMarshaller)), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 Ok((
                     name,
                     (
@@ -154,7 +159,7 @@ impl Function {
             }).collect::<Result<_,_>>()?;
         Ok(Self { parameters, returns, fn_ptr })
     }
-    pub(crate) fn call(&self, parameters: &HashMap<String, Box<RawValue>>) -> Result<HashMap<String, Box<RawValue>>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    pub(crate) fn call(&self, parameters: &HashMap<Arc<str>, Box<RawValue>>) -> Result<HashMap<Arc<str>, Box<RawValue>>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         eprintln!("TODO: check for extraneous parameters");
 
         let parameterbuffer: Vec<Box<dyn InputMarshall>> =
@@ -181,7 +186,7 @@ impl Function {
             |(om, (name, _))| {
                 let value = om.to_json()?;
                 Ok((name.to_owned(), value))
-            }).collect::<Result<HashMap<String, Box<RawValue>>, _>>();
+            }).collect::<Result<HashMap<Arc<str>, Box<RawValue>>, _>>();
         drop(parameterbuffer);
         drop(returnbuffer);
         result
@@ -192,8 +197,8 @@ impl Axis {
     pub(crate) fn new(
         min: f64,
         max: f64,
-        group: String,
-        direction: String,
+        group: Option<Arc<str>>,
+        direction: Option<Arc<str>>,
         fn_ptr: unsafe extern "C" fn(
             input: f64,
         ),
@@ -237,7 +242,7 @@ impl Stream {
         fd: RawFd,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(Self {
-            format: format.to_owned(),
+            format: format.into(),
             fd,
         })
     }

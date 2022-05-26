@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::{collections::HashMap, io::BufReader};
 use std::net::TcpStream;
 //use std::thread;
@@ -34,9 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = Message::new(
         MessageInner::FunctionCall {
             destination: machine.clone(),
-            name: "count_bools".to_owned(),
-            parameters: HashMap::<String, Box<RawValue>>::from([
-                ("values".to_owned(), to_raw_value(&[true, true, false, true, false])?),
+            name: "count_bools".into(),
+            parameters: HashMap::<_, Box<RawValue>>::from([
+                ("values".into(), to_raw_value(&[true, true, false, true, false])?),
             ]),
         },
     );
@@ -54,9 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = Message::new(
         MessageInner::FunctionCall {
             destination: machine.clone(),
-            name: "average".to_owned(),
-            parameters: HashMap::<String, Box<RawValue>>::from([
-                ("x".to_owned(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
+            name: "average".into(),
+            parameters: HashMap::<_, Box<RawValue>>::from([
+                ("x".into(), to_raw_value(&[4.5, 3.7, 20.0, 45.2])?),
             ]),
         },
     );
@@ -74,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = Message::new(
         MessageInner::SensorRead {
             destination: machine.clone(),
-            name: "count".to_owned(),
+            name: "count".into(),
         },
     );
     dbg!(&msg);
@@ -100,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = Message::new(
         MessageInner::AxisChange {
             destination: machine.clone(),
-            name: "example".to_owned(),
+            name: "example".into(),
             value: 6.0,
         },
     );
@@ -118,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let msg = Message::new(
         MessageInner::AxisChange {
             destination: machine.clone(),
-            name: "example".to_owned(),
+            name: "example".into(),
             value: 42.0,
         },
     );

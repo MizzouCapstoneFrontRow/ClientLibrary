@@ -32,10 +32,10 @@ struct Machine {
     name: Arc<str>,
     addr: SocketAddr,
     message_tx: Sender<Message>,
-    functions: HashMap<String, Function>,
-    sensors: HashMap<String, Sensor>,
-    axes: HashMap<String, Axis>,
-    streams: HashMap<String, (Stream, RwLock<Option<()>>)>,
+    functions: HashMap<Arc<str>, Function>,
+    sensors: HashMap<Arc<str>, Sensor>,
+    axes: HashMap<Arc<str>, Axis>,
+    streams: HashMap<Arc<str>, (Stream, RwLock<Option<()>>)>,
 }
 
 #[derive(Debug)]
@@ -278,7 +278,7 @@ async fn message_handler(state: Arc<ServerState>, mut message_handler_rx: Receiv
                             },
                             MessageInner::MachineListRequest {} => {
                                 let machines = state.machines.read().await;
-                                let machines = machines.iter().map(|(name, _)| (name as &str).to_owned()).collect();
+                                let machines = machines.iter().map(|(name, _)| name.clone()).collect();
                                 message = Message::new(MessageInner::MachineListReply { machines });
                                 source.clone() // Send reply back to source
                             }

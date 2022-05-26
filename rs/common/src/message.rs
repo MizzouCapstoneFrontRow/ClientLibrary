@@ -1,5 +1,6 @@
 use crate::NodeType::{self, *};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use serde_json::value::{RawValue, to_raw_value};
 use serde::{Serialize, Deserialize};
@@ -89,17 +90,18 @@ macro_rules! message_inner_enum_with_metadata {
             }
             /// What is the intended destination machine for this message?
             /// None if this message type does not have a destiation, or it is implied (e.g. this is a reply).
+            #[allow(unused_variables)]
             fn destination_machine(&self) -> Option<&str> {
                 use $name::*;
-                let $destination = None::<&String>;
+                let $destination = None::<&Arc<str>>;
                 match self {
                     $( $variant { $($field),* } => {
-                        // If this variant has destination, .into() will be &String -> Option<&String>
+                        // If this variant has destination, .into() will be &Arc<str> -> Option<&Arc<str>>
                         // else it will use the above local variable, and .into() will be a no-op
-                        let r: Option<&String> = $destination.into();
+                        let r: Option<&Arc<str>> = $destination.into();
                         r
                     } ),*
-                }.map(String::as_str)
+                }.map(Arc::as_ref)
             }
             /// What is supposed to send this message, and where to?
             fn route(&self) -> (NodeType, NodeType) {
@@ -231,27 +233,27 @@ pub enum MessageInner {
     /// Machine description. Initial message sent to server.
     /// Contains the name of the client, and the functions, sensors, axes, and streams it supports (by name).
     MachineDescription {
-        name: String: "the name of the machine",
-        functions: HashMap<String, Function>: "function names and descriptors",
-        sensors: HashMap<String, Sensor>: "sensor names and descriptors",
-        axes: HashMap<String, Axis>: "axis names and descriptors",
-        streams: HashMap<String, Stream>: "stream names and descriptors",
+        name: Arc<str>: "the name of the machine",
+        functions: HashMap<Arc<str>, Function>: "function names and descriptors",
+        sensors: HashMap<Arc<str>, Sensor>: "sensor names and descriptors",
+        axes: HashMap<Arc<str>, Axis>: "axis names and descriptors",
+        streams: HashMap<Arc<str>, Stream>: "stream names and descriptors",
     } = "machine_description" no_reply (Machine => Server),
     /// Message from the server representing a request to call a function.
     FunctionCall {
-        destination: String: "the machine the function is called on",
-        name: String: "the name of the function",
-        parameters: HashMap<String, Box<RawValue>>: "function parameters",
+        destination: Arc<str>: "the machine the function is called on",
+        name: Arc<str>: "the name of the function",
+        parameters: HashMap<Arc<str>, Box<RawValue>>: "function parameters",
     } = "function_call" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to a function call with the results.
     FunctionReturn {
         reply_to: i64: "message_id of the message this is a return of",
-        returns: HashMap<String, Box<RawValue>>: "function returns",
+        returns: HashMap<Arc<str>, Box<RawValue>>: "function returns",
     } = "function_return" no_reply (Machine => Environment),
     /// Message from the server representing a request to read a sensor.
     SensorRead {
-        destination: String: "the machine the sensor is called on",
-        name: String: "the name of the sensor",
+        destination: Arc<str>: "the machine the sensor is called on",
+        name: Arc<str>: "the name of the sensor",
     } = "sensor_read" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to a sensor read with the value.
     SensorReturn {
@@ -260,8 +262,8 @@ pub enum MessageInner {
     } = "sensor_return" no_reply (Machine => Environment),
     /// Message from the server representing a request to change an axis.
     AxisChange {
-        destination: String: "the machine the axis is called on",
-        name: String: "the name of the axis",
+        destination: Arc<str>: "the machine the axis is called on",
+        name: Arc<str>: "the name of the axis",
         value: f64: "the value of the axis",
     } = "axis_change" expects_forwarded_reply (Environment => Machine),
     /// Message to the server representing a reply to an axis change.
@@ -271,20 +273,20 @@ pub enum MessageInner {
     /// Message to/from the server representing that a previous message was unrecognized or unsupported for some reason.
     UnsupportedOperation {
         reply_to: i64: "message_id of the message this is a return of",
-        operation: String: "the operation that was unsupported",
-        reason: String: "why the operation was unsupported"
+        operation: Arc<str>: "the operation that was unsupported",
+        reason: Arc<str>: "why the operation was unsupported"
     } = "unsupported_operation" no_reply (Any => Any),
     /// Message from the server representing that the client should reset to a safe state
     /// (e.g. because unity has disconnected).
     Reset {
-        destination: String: "the machine the reset is requested on",
+        destination: Arc<str>: "the machine the reset is requested on",
     } = "reset" no_reply (Environment => Machine),
     /// Message to/from the server representing that the sender has disconnected.
     Disconnect {} = "disconnect" no_reply (Any => Any),
     /// Message to the server on a stream connection to identify the stream
     StreamDescription {
-        machine: String: "the name of the machine",
-        stream: String: "the name of the stream",
+        machine: Arc<str>: "the name of the machine",
+        stream: Arc<str>: "the name of the stream",
     } = "stream_descriptor" no_reply (Machine => Server),
     /// Message to/from the server representing a keepalive/"heartbeat" request/reply
     Heartbeat {
@@ -294,7 +296,7 @@ pub enum MessageInner {
     MachineListRequest {} = "machine_list_request" no_reply (Environment => Server),
     /// Message from server to environment with a list of available machines
     MachineListReply {
-        machines: Vec<String>: "list of machines connected to the server",
+        machines: Vec<Arc<str>>: "list of machines connected to the server",
     } = "machine_list_reply" no_reply (Server => Environment),
     /// TODO
     Other { data: Box<RawValue>: "data" } = "other" no_reply (Any => Any),
@@ -303,14 +305,14 @@ pub enum MessageInner {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Function {
-    pub parameters: HashMap<String, String>,
-    pub returns: HashMap<String, String>,
+    pub parameters: HashMap<Arc<str>, Arc<str>>,
+    pub returns: HashMap<Arc<str>, Arc<str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sensor {
     #[serde(rename = "type")]
-    pub output_type: String,
+    pub output_type: Arc<str>,
     #[serde(default)]
     pub min: f64,
     #[serde(default)]
@@ -320,15 +322,15 @@ pub struct Sensor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Axis {
     #[serde(rename = "type")]
-    pub input_type: String,
+    pub input_type: Arc<str>,
     #[serde(default)]
     pub min: f64,
     #[serde(default)]
     pub max: f64,
     #[serde(default)]
-    pub direction: String,
+    pub direction: Option<Arc<str>>,
     #[serde(default)]
-    pub group: String,
+    pub group: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,7 +350,7 @@ impl Default for BufferMethod {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stream {
-    pub format: String,
+    pub format: Arc<str>,
     #[serde(default)]
     pub buffer_method: BufferMethod,
 }

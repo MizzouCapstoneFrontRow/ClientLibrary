@@ -29,21 +29,21 @@ use errors::ErrorCode::{self, *};
 
 #[derive(Default)]
 pub struct UnconnectedClient {
-    name: Option<String>,
+    name: Option<Arc<str>>,
     reset: Option<unsafe extern "C" fn()>,
-    streams: HashMap<String, Stream>,
-    sensors: HashMap<String, Sensor>,
-    axes: HashMap<String, Axis>,
-    functions: HashMap<String, Function>,
+    streams: HashMap<Arc<str>, Stream>,
+    sensors: HashMap<Arc<str>, Sensor>,
+    axes: HashMap<Arc<str>, Axis>,
+    functions: HashMap<Arc<str>, Function>,
 }
 
 pub struct ConnectedClient {
-    name: String,
+    name: Arc<str>,
     reset: Option<unsafe extern "C" fn()>,
-    streams: HashMap<String, Stream>,
-    sensors: HashMap<String, Sensor>,
-    axes: HashMap<String, Axis>,
-    functions: HashMap<String, Function>,
+    streams: HashMap<Arc<str>, Stream>,
+    sensors: HashMap<Arc<str>, Sensor>,
+    axes: HashMap<Arc<str>, Axis>,
+    functions: HashMap<Arc<str>, Function>,
     read_connection: BufReader<std::net::TcpStream>,
     write_connection: std::net::TcpStream,
     stream_flag: Arc<AtomicBool>,
@@ -105,7 +105,7 @@ pub extern "C" fn SetName(
         NonUtf8String,
         with_message "Error setting name: Invalid name (not UTF-8)",
     );
-    handle.name = Some(name.to_owned());
+    handle.name = Some(name.into());
     NoError
 }
 
@@ -167,7 +167,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                                 UnsupportedOperation {
                                     reply_to: message.message_id,
                                     operation: name,
-                                    reason: format!("{:?}", err),
+                                    reason: format!("{:?}", err).into(),
                                 }
                             );
                             unwrap_or_return!(
@@ -195,7 +195,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                         UnsupportedOperation {
                             reply_to: message.message_id,
                             operation: name,
-                            reason: "unrecognized function".to_owned(),
+                            reason: "unrecognized function".into(),
                         }
                     );
                     unwrap_or_return!(
@@ -215,7 +215,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                                 UnsupportedOperation {
                                     reply_to: message.message_id,
                                     operation: name,
-                                    reason: format!("{:?}", err),
+                                    reason: format!("{:?}", err).into(),
                                 }
                             );
                             unwrap_or_return!(
@@ -241,7 +241,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                         UnsupportedOperation {
                             reply_to: message.message_id,
                             operation: name,
-                            reason: "unrecognized axis".to_owned(),
+                            reason: "unrecognized axis".into(),
                         }
                     );
                     unwrap_or_return!(
@@ -261,7 +261,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                                 UnsupportedOperation {
                                     reply_to: message.message_id,
                                     operation: name,
-                                    reason: format!("{:?}", err),
+                                    reason: format!("{:?}", err).into(),
                                 }
                             );
                             unwrap_or_return!(
@@ -289,7 +289,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                         UnsupportedOperation {
                             reply_to: message.message_id,
                             operation: name,
-                            reason: "unrecognized sensor".to_owned(),
+                            reason: "unrecognized sensor".into(),
                         }
                     );
                     unwrap_or_return!(
@@ -303,8 +303,8 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
                 let reply = Message::new(
                     UnsupportedOperation {
                         reply_to: message.message_id,
-                        operation: format!("{:?}", message_inner),
-                        reason: "unsupported message type received by machine".to_owned(),
+                        operation: format!("{:?}", message_inner).into(),
+                        reason: "unsupported message type received by machine".into(),
                     }
                 );
                 unwrap_or_return!(
@@ -320,7 +320,7 @@ pub extern "C" fn LibraryUpdate(handle: Option<&mut ClientHandle>) -> ErrorCode 
     NoError
 }
 
-unsafe fn parse_descriptors(descriptors: *const [*const c_char; 2]) -> Result<IndexMap<String, Type>, &'static str> {
+unsafe fn parse_descriptors(descriptors: *const [*const c_char; 2]) -> Result<IndexMap<Arc<str>, Type>, &'static str> {
     let slice = if descriptors.is_null() {
         &[]
     } else {
@@ -350,7 +350,7 @@ unsafe fn parse_descriptors(descriptors: *const [*const c_char; 2]) -> Result<In
             Type::from_str(r#type),
             Err("unrecognized type"),
         );
-        map.insert(name.to_owned(), r#type);
+        map.insert(name.into(), r#type);
     }
     Ok(map)
 }
@@ -399,7 +399,7 @@ pub extern "C" fn RegisterFunction(
         with_message(e) "Error registering function: {:?}", e
     );
 
-    handle.functions.insert(name.to_owned(), function);
+    handle.functions.insert(name.into(), function);
     NoError
 }
 
@@ -434,7 +434,7 @@ pub extern "C" fn RegisterSensor(
         with_message(e) "Error registering sensor: {:?}", e
     );
 
-    handle.sensors.insert(name.to_owned(), sensor);
+    handle.sensors.insert(name.into(), sensor);
     NoError
 }
 
@@ -477,7 +477,7 @@ pub extern "C" fn RegisterStream(
         with_message(e) "Error registering stream: {:?}", e
     );
 
-    handle.streams.insert(name.to_owned(), stream);
+    handle.streams.insert(name.into(), stream);
     NoError
 }
 
@@ -503,25 +503,21 @@ pub extern "C" fn RegisterAxis(
     );
 
     let group = match group {
-        Some(group) => {
-            unwrap_or_return!(
-                unsafe { CStr::from_ptr(group.as_ptr()) }.to_str(),
-                NonUtf8String,
-                with_message "Error registering axis: Invalid group (not UTF-8)",
-            )
-        }
-        None => "",
+        Some(group) => Some(unwrap_or_return!(
+            unsafe { CStr::from_ptr(group.as_ptr()) }.to_str(),
+            NonUtf8String,
+            with_message "Error registering axis: Invalid group (not UTF-8)",
+        ).into()),
+        None => None,
     };
 
     let direction = match direction {
-        Some(direction) => {
-            unwrap_or_return!(
-                unsafe { CStr::from_ptr(direction.as_ptr()) }.to_str(),
-                NonUtf8String,
-                with_message "Error registering axis: Invalid direction (not UTF-8)",
-            )
-        }
-        None => "",
+        Some(direction) => Some(unwrap_or_return!(
+            unsafe { CStr::from_ptr(direction.as_ptr()) }.to_str(),
+            NonUtf8String,
+            with_message "Error registering axis: Invalid direction (not UTF-8)",
+        ).into()),
+        None => None,
     };
 
     if handle.axes.contains_key(name) {
@@ -532,12 +528,12 @@ pub extern "C" fn RegisterAxis(
     let input_type = Type::Prim(PrimType::Double);
 
     let axis = unwrap_or_return!(
-        Axis::new(min, max, group.to_owned(), direction.to_owned(), callback),
+        Axis::new(min, max, group, direction, callback),
         InvalidParameter,
         with_message(e) "Error registering axis: {:?}", e
     );
 
-    handle.axes.insert(name.to_owned(), axis);
+    handle.axes.insert(name.into(), axis);
     NoError
 }
 
@@ -594,7 +590,7 @@ pub extern "C" fn ConnectToServer(
 
     let machine_description = Message::new(
         MessageInner::MachineDescription {
-            name: handle.name.clone().into(),
+            name: handle.name.clone(),
 
             functions: handle.functions.iter().map(|(name, f)| {
                 let parameters = f.parameters.iter().map(|(n, (t, _))| {
