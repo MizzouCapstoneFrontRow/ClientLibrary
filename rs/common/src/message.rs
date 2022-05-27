@@ -481,10 +481,12 @@ mod io_common {
 
     impl From<std::io::Error> for TryWriteMessageError {
         fn from(err: std::io::Error) -> Self {
-            if err.kind() == std::io::ErrorKind::BrokenPipe {
-                TryWriteMessageError::Disconnected(err)
-            } else {
-                TryWriteMessageError::IOError(err)
+            use std::io::ErrorKind;
+            match err.kind() {
+                ErrorKind::BrokenPipe | ErrorKind::ConnectionReset =>
+                    TryWriteMessageError::Disconnected(err),
+                _ =>
+                    TryWriteMessageError::IOError(err),
             }
         }
     }
