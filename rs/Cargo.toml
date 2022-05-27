@@ -7,4 +7,5 @@ members = [
     "server",
     "environment",
     "mock_environment",
+    "buffer_cache",
 ]

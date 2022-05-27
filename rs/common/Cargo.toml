@@ -5,6 +5,7 @@ edition = "2021"
 
 [features]
 io = ["polling"]
+jpeg = ["tokio", "buffer_cache"]
 
 [lib]
 crate_type = ["rlib"]
@@ -12,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 lazy_static = "1.4"
+buffer_cache = { path = "../buffer_cache", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 polling = { version = "2.2", optional = true }
